@@ -1,18 +1,190 @@
-# Setup Guide
+# Croptopus
 
-## Hardware
-- [XIAO ESP32 S3](https://www.seeedstudio.com/Wio-SX1262-with-XIAO-ESP32S3-p-5982.html)
-- [Seeed Studio Grove Base for XIAO](https://www.seeedstudio.com/Grove-Shield-for-Seeeduino-XIAO-p-4621.html)
-- [SHT 35 Temperature and Humidity Sensor](https://wiki.seeedstudio.com/Grove-I2C_High_Accuracy_Temp%2526Humi_Sensor-SHT35/)
-- [Soil Moisture Sensor](https://wiki.seeedstudio.com/Grove-Capacitive_Moisture_Sensor-Corrosion-Resistant/)
-- Grove female-female cables
+A LoRa-based environmental sensor network for soil and garden monitoring.
+Each station measures temperature, humidity, and soil moisture and beams a
+compact binary packet to a self-hosted gateway over private 868 MHz RF — no
+internet, no LoRaWAN, no third-party network.
 
+![Grove base board pinout](images/3_32.jpeg)
 
-## Arduino IDE
-(1) Install Arduino IDE from [here](https://docs.arduino.cc/software/ide-v2/tutorials/getting-started/ide-v2-downloading-and-installing/)
+## Architecture
 
-(2) Execute the following code block (Python > 3.12) required
 ```
+  ┌──────────────────┐         ┌──────────────────┐         ┌──────────────────┐
+  │ Sensor station N │         │ Sensor station 2 │         │ Sensor station 1 │
+  │ XIAO ESP32S3     │         │ XIAO ESP32S3     │         │ XIAO ESP32S3     │
+  │ + Wio-SX1262     │         │ + Wio-SX1262     │   ...   │ + Wio-SX1262     │
+  │ + SHT35  + soil  │         │ + SHT35  + soil  │         │ + SHT35  + soil  │
+  └────────┬─────────┘         └────────┬─────────┘         └────────┬─────────┘
+           │                            │                            │
+           │   raw LoRa, 868.1 MHz, SF7, BW125, sync word 0x34        │
+           └────────────────────────────┼────────────────────────────┘
+                                        ▼
+                              ┌──────────────────────┐
+                              │ Gateway (BeagleBone) │
+                              │ Seeed WM1302 (EU868) │
+                              │ sx1302_hal           │
+                              │ lora_pkt_fwd         │
+                              │   → 127.0.0.1:1700   │
+                              └──────────┬───────────┘
+                                         ▼
+                              ┌──────────────────────┐
+                              │ Python listener      │
+                              │ parses Semtech UDP   │
+                              │ decodes 6-byte frame │
+                              └──────────────────────┘
+```
+
+1. **Sensor stations.** Battery- or USB-powered Seeed XIAO ESP32S3 boards with
+   a Wio-SX1262 LoRa carrier, an SHT35 temperature/humidity sensor on I2C, and
+   an analog soil-moisture probe on A0. Each station has a unique `STATION_ID`
+   (1–255) baked in at flash time and transmits a 6-byte payload every 60 s.
+2. **Gateway.** A Seeed WM1302 (USB version, EU868) on a BeagleBone, running
+   `sx1302_hal`'s `lora_pkt_fwd` configured to forward upstream packets to
+   `127.0.0.1:1700` — i.e. localhost, *not* The Things Network.
+3. **Receiver.** A small Python listener on the same BeagleBone reads the
+   Semtech UDP packet-forwarder protocol and decodes the binary payload.
+
+**This repository covers the sensor-station side only** — the gateway
+configuration and the Python listener live outside this repo for now and may
+be added later.
+
+## Raw LoRa, not LoRaWAN
+
+The stations speak **raw LoRa**, not LoRaWAN. We own both ends of the radio
+link, so the LoRaWAN MAC layer (join procedure, frame counters, encryption,
+network/application servers) is unnecessary overhead. The tradeoffs are
+deliberate:
+
+| Aspect             | This setup                | LoRaWAN equivalent              |
+| ------------------ | ------------------------- | ------------------------------- |
+| Network            | Private, no internet      | Public/TTN, internet-dependent  |
+| Encryption         | None                      | AES-128                         |
+| Duty cycle         | Self-policed              | Enforced by MAC                 |
+| Downlinks          | Not supported             | Class A/B/C                     |
+| Roaming/coverage   | Single gateway only       | Any compatible gateway          |
+| Complexity         | Send 6 bytes and done     | Join, ABP/OTAA, server config   |
+
+The one LoRaWAN-flavoured detail we keep: the LoRa **sync word is `0x34`**
+("public network"). The WM1302's SX1302 demodulator runs with
+`lorawan_public=1` and ignores packets that use RadioLib's default `0x12`
+("private"). Setting `0x34` on the sender is what makes the gateway accept the
+frames.
+
+## Hardware (per sensor station)
+
+- [Seeed XIAO ESP32S3 + Wio-SX1262 carrier](https://www.seeedstudio.com/Wio-SX1262-with-XIAO-ESP32S3-p-5982.html)
+- [Seeed Grove Base for XIAO](https://www.seeedstudio.com/Grove-Shield-for-Seeeduino-XIAO-p-4621.html)
+- [Grove SHT35 temperature & humidity sensor](https://wiki.seeedstudio.com/Grove-I2C_High_Accuracy_Temp%2526Humi_Sensor-SHT35/)
+- [Grove capacitive soil-moisture sensor](https://wiki.seeedstudio.com/Grove-Capacitive_Moisture_Sensor-Corrosion-Resistant/)
+- Grove female–female cables, USB-C data cable
+
+Wire the SHT35 to any I2C Grove port and the soil probe to the A0 Grove port.
+
+## Repo layout
+
+```
+croptopus/
+├── README.md
+├── images/
+│   └── 3_32.jpeg                       # Grove base pinout
+└── xiao-station-flasher/
+    ├── setup_arduino_cli.sh            # one-time toolchain setup
+    ├── flash_xiao_station.sh           # flash one station with a given ID
+    └── xiao_lora_sensor/
+        └── xiao_lora_sensor.ino        # the sensor sketch
+```
+
+## Quick start (scripted flashing)
+
+This is the recommended path: install `arduino-cli` once, then flash each
+station with a single command. No editing of `.ino` files between stations.
+
+### One-time setup
+
+```bash
+cd xiao-station-flasher
+./setup_arduino_cli.sh
+```
+
+The script will:
+
+- Install `arduino-cli` to `~/bin` (skipped if already present).
+- Initialise `~/.arduino15/arduino-cli.yaml` with `~/Arduino` as the
+  sketchbook and Espressif's board-manager URL.
+- Install the `esp32:esp32` core and verify that the `XIAO_ESP32S3` board
+  variant is available.
+- Install **RadioLib** (Jan Gromes) and the Seeed SHT35 library
+  (`Grove - Integrated Smart Station - SHT35`, with a Git-URL fallback to
+  `https://github.com/Seeed-Studio/Seeed_SHT35.git` if the registry name has
+  changed).
+- Test-compile the sketch with `-DSTATION_ID_OVERRIDE=99` to confirm the
+  toolchain works.
+
+If `~/bin` isn't already on your `PATH`, add this to your shell rc file:
+
+```bash
+export PATH="$HOME/bin:$PATH"
+```
+
+You only need to run `setup_arduino_cli.sh` once per workstation.
+
+### Flashing a station
+
+Plug a single XIAO into USB-C (use a data cable, not a power-only one), then:
+
+```bash
+./flash_xiao_station.sh <station_id>     # station_id is 1..255
+```
+
+For example, to flash the first station:
+
+```bash
+./flash_xiao_station.sh 1
+```
+
+The script:
+
+1. Detects connected XIAOs by USB VID (`0x303A` for the ESP32-S3 native
+   USB/JTAG interface, plus the legacy Seeed `0x2886`).
+2. **Aborts if more than one XIAO is connected** — this prevents
+   accidentally re-flashing an existing station with a new ID.
+3. Compiles the sketch with `-DSTATION_ID_OVERRIDE=<station_id>` so the
+   source file stays untouched.
+4. Uploads to the detected port via `arduino-cli upload`.
+5. Prints the `arduino-cli monitor` command for watching the boot output.
+
+Watch a freshly flashed station boot:
+
+```bash
+arduino-cli monitor -p /dev/ttyACM0 --config baudrate=115200
+```
+
+Repeat: unplug the flashed station, plug the next one in, run
+`./flash_xiao_station.sh <next_id>`.
+
+## Arduino IDE (legacy path)
+
+If you prefer Arduino IDE — or want to tweak the sketch interactively —
+follow the steps below. The IDE path doesn't use
+`-DSTATION_ID_OVERRIDE`, so you edit the `STATION_ID` default near the top
+of `xiao_lora_sensor.ino` before each upload:
+
+```cpp
+#ifdef STATION_ID_OVERRIDE
+  const uint8_t STATION_ID = STATION_ID_OVERRIDE;
+#else
+  const uint8_t STATION_ID = 1;          // ← edit this per device
+#endif
+```
+
+### Installing the IDE and ESP32 core
+
+(1) Install Arduino IDE from [here](https://docs.arduino.cc/software/ide-v2/tutorials/getting-started/ide-v2-downloading-and-installing/).
+
+(2) Execute the following code block (Python > 3.12 required):
+
+```bash
 sudo usermod -a -G dialout $USER && \
 sudo apt-get install git && \
 wget https://bootstrap.pypa.io/get-pip.py && \
@@ -25,20 +197,25 @@ cd esp32/tools && \
 python get.py
 ```
 
-(3) Restart Arduino IDE
+(3) Restart Arduino IDE.
 
-(4) In Arduino, go to: File → Preferences → Additional Board Manager URLs and add `https://raw.githubusercontent.com/espressif/arduino-esp32/gh-pages/package_esp32_index.json`
+(4) In Arduino, go to: **File → Preferences → Additional Board Manager URLs**
+and add `https://raw.githubusercontent.com/espressif/arduino-esp32/gh-pages/package_esp32_index.json`.
 
-(5) Go to Tools → Board → Board Manager, and search for esp32 - Install `esp32` by "Espressif Systems" (`Version 3.3.0`)
+(5) Go to **Tools → Board → Board Manager**, search for `esp32`, and install
+`esp32` by Espressif Systems (Version 3.3.0).
 
-(6) In Tools → Board → ESP32 Arduino, choose: `XIAO_ESP32S3`
+(6) In **Tools → Board → ESP32 Arduino**, choose: `XIAO_ESP32S3`.
 
-Additional information on the installation process is available [here](https://docs.espressif.com/projects/arduino-esp32/en/latest/installing.html).
+Additional info on the install process: [Espressif Arduino docs](https://docs.espressif.com/projects/arduino-esp32/en/latest/installing.html).
 
-## Connecting the XIAO ESP32
-Once the Arduino IDE is prepared, connect the Sensor via USB-C - USB cable to your computed. Make sure the cable you use is able to transfer data and not just power only. With the command `lsusb` the Xiao ESP32 should show up. Set baud rate to 115200 in the Serial Monitor.
-For testing the connection, use the following script:
-```
+### Connecting the XIAO ESP32
+
+Once the IDE is prepared, connect the sensor via a USB-C data cable. With
+`lsusb` the XIAO should show up. Set the baud rate to 115200 in the Serial
+Monitor. For a quick smoke test:
+
+```cpp
 void setup() {
   Serial.begin(115200);
   Serial.println("ESP32-S3 ready!");
@@ -50,28 +227,33 @@ void loop() {
 }
 ```
 
-Upload it via Arduino IDE. If you run into issues, make sure the permissions are set correctly. Check whether your user has read/write access with `ls -l /dev/ttyACM0` and if not, add it with `sudo usermod -aG dialout $USER`. Reboot afterwards.
+Upload via Arduino IDE. If you hit permission errors, check with
+`ls -l /dev/ttyACM0`; if your user isn't in `dialout`, add it with
+`sudo usermod -aG dialout $USER` and reboot.
 
-If the chip still doesn't connect, you can try the bootloader trick:
-	- Hold BOOT button on the XIAO.
-	- While holding BOOT, press and release RESET.
-	- Release BOOT after ~1 second.
-	- In Arduino IDE, click Upload.
-You can use two toothpicks to press the buttons.
+If the chip still doesn't connect, force the bootloader:
 
+- Hold **BOOT** on the XIAO.
+- While holding BOOT, press and release **RESET**.
+- Release BOOT after ~1 second.
+- In Arduino IDE, click Upload.
 
-## Connecting the Sensors
-Here is a schematic overview of the base board:
-![Schematic overview](images/3_32.jpeg)
+Two toothpicks help.
 
-### SHT 35 - (Temperature & Humidity)
-Clone the SHT 35 download the SHT 35 library from the [Github repo](https://github.com/Seeed-Studio/Seeed_SHT35) as a **zip file**. Then, in Arduino IDE go to Sketch → Include Library → Add .ZIP Library and add select the downloaded repo. 
-Connect the sensor a I2C port of the base board. Try out the following example code:
-```
+### Connecting the sensors
+
+The Grove base board pinout is shown at the top of this README.
+
+#### SHT35 (temperature & humidity)
+
+Download the SHT35 library from the [Seeed_SHT35 repo](https://github.com/Seeed-Studio/Seeed_SHT35)
+as a **zip**. In Arduino IDE: **Sketch → Include Library → Add .ZIP Library**
+and select the downloaded zip. Connect the sensor to an I2C Grove port. Test
+with:
+
+```cpp
 #include "Seeed_SHT35.h"
 
-
-/*SAMD core*/
 #ifdef ARDUINO_SAMD_VARIANT_COMPLIANCE
   #define SDAPIN  20
   #define SCLPIN  21
@@ -86,55 +268,134 @@ Connect the sensor a I2C port of the base board. Try out the following example c
 
 SHT35 sensor(SCLPIN);
 
-
-void setup()
-{
+void setup() {
     SERIAL.begin(115200);
     delay(10);
     SERIAL.println("serial start!!");
-    if(sensor.init())
-    {
+    if (sensor.init()) {
       SERIAL.println("sensor init failed!!!");
     }
     delay(1000);
 }
 
-
-void loop()
-{
-    u16 value=0;
-    u8 data[6]={0};
-    float temp,hum;
-    if(NO_ERROR!=sensor.read_meas_data_single_shot(HIGH_REP_WITH_STRCH,&temp,&hum))
-    {
+void loop() {
+    float temp, hum;
+    if (NO_ERROR != sensor.read_meas_data_single_shot(HIGH_REP_WITH_STRCH, &temp, &hum)) {
       SERIAL.println("read temp failed!!");
-    }
-    else
-    {
+    } else {
       SERIAL.println("Sensor readings:");
-      SERIAL.print("temperature = ");
-      SERIAL.println(temp);
-      SERIAL.print("humidity = ");
-      SERIAL.println(hum);
+      SERIAL.print("temperature = "); SERIAL.println(temp);
+      SERIAL.print("humidity = ");    SERIAL.println(hum);
     }
     delay(1000);
 }
 ```
 
+#### Soil moisture sensor
 
+No library required. Connect to an analog Grove port. Smoke test:
 
-### Soil Moisture Sensor
-The Soil Moisture Sensor does not require installing an additional library. Connect the sensor a analog port of the base board. The moisture sensor sends analog signals. Try it out by uploading the following script:
-```
+```cpp
 void setup() {
   Serial.begin(9600);
 }
 
 void loop() {
-  // read the input on analog pin 0:
   int sensorValue = analogRead(A0);
   Serial.println(sensorValue);
   delay(1000);
 }
 ```
 
+### Installing RadioLib (for the LoRa sketch)
+
+In **Sketch → Include Library → Manage Libraries**, search for **RadioLib**
+by Jan Gromes (version 6.0.0 or newer) and install. Then open
+`xiao-station-flasher/xiao_lora_sensor/xiao_lora_sensor.ino`, set the
+`STATION_ID` default to the device's ID, and upload.
+
+## Payload format
+
+Each uplink is exactly 6 bytes, big-endian:
+
+| Offset | Type    | Field            | Notes                                            |
+| -----: | ------- | ---------------- | ------------------------------------------------ |
+|      0 | uint8   | station ID       | 1..255; 0 is reserved                            |
+|    1–2 | int16   | temperature ×100 | °C × 100; `0x8000` = SHT35 read failed           |
+|    3–4 | uint16  | humidity ×100    | %RH × 100; `0xFFFF` = SHT35 read failed          |
+|      5 | uint8   | soil moisture %  | 0..100, clamped                                  |
+
+### Worked example
+
+```
+02 09 09 16 E5 0D
+│  └─┬─┘ └─┬─┘ │
+│    │     │   └─ 0x0D       = 13   →  soil moisture 13 %
+│    │     └───── 0x16E5     = 5861 →  humidity      58.61 %RH
+│    └─────────── 0x0909     = 2313 →  temperature   23.13 °C
+└──────────────── 0x02              →  station       #2
+```
+
+## Multiple stations
+
+Every station must have a **unique** `STATION_ID` between 1 and 255. The
+listener uses byte 0 of the payload to demultiplex readings into per-station
+time series, so duplicates would silently merge data from different physical
+locations.
+
+Practical workflow for rolling out N stations:
+
+```bash
+./flash_xiao_station.sh 1     # plug station 1, flash, unplug
+./flash_xiao_station.sh 2     # plug station 2, flash, unplug
+./flash_xiao_station.sh 3     # ...
+```
+
+Label each device with its ID before deploying — the chips are visually
+identical.
+
+## Troubleshooting
+
+**`arduino-cli: command not found` after running setup.**
+`~/bin` isn't on your `PATH` for the current shell. Run
+`export PATH="$HOME/bin:$PATH"` and add the same line to `~/.bashrc` (or
+`~/.zshrc`).
+
+**`No XIAO ESP32S3 detected`.**
+The board's small LED should be lit when powered. Verify with
+`arduino-cli board list`. The detection script matches USB VID `0x303A`
+(ESP32-S3 native USB) or `0x2886` (Seeed), plus any board `arduino-cli`
+explicitly tags as `XIAO_ESP32S3`. A power-only USB cable will not be
+detected — use a data cable.
+
+**`ERROR: N XIAOs detected`.**
+Intentional safety check: with more than one XIAO on USB, the script
+refuses to guess which one to flash. Unplug all but the target and retry.
+
+**`Could not connect to chip` during upload.**
+Force the bootloader manually:
+
+1. Hold **BOOT** on the XIAO.
+2. Press and release **RESET** while holding BOOT.
+3. Release BOOT.
+4. Re-run `./flash_xiao_station.sh <id>`.
+
+**`SHT35 init FAILED` in the serial monitor.**
+The sensor isn't responding on I2C. Check the Grove cable orientation and
+that the sensor is plugged into an I2C port (not analog or UART). The
+sketch continues running — sensor reads return the `0x8000` / `0xFFFF`
+sentinels in the payload until the sensor responds.
+
+**`Radio init FAILED, code <n>`.**
+The Wio-SX1262 carrier didn't initialise. Confirm the XIAO is actually
+seated on the SX1262 carrier board (not just the Grove base). Sensor reads
+will continue, but no RF will be transmitted.
+
+**Seeed SHT35 library not found in registry.**
+The setup script falls back to installing directly from the GitHub repo via
+`arduino-cli lib install --git-url https://github.com/Seeed-Studio/Seeed_SHT35.git`.
+This works because the setup also sets
+`library.enable_unsafe_install=true`.
+
+**ESP32 core too old (`XIAO_ESP32S3 not in installed esp32 core`).**
+Upgrade with `arduino-cli core upgrade esp32:esp32`.
