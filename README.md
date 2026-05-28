@@ -46,9 +46,9 @@ internet, no LoRaWAN, no third-party network.
 3. **Receiver.** A small Python listener on the same BeagleBone reads the
    Semtech UDP packet-forwarder protocol and decodes the binary payload.
 
-**This repository covers the sensor-station side only** — the gateway
-configuration and the Python listener live outside this repo for now and may
-be added later.
+**This repository covers the sensor-station side and the BBB listener.**
+The gateway configuration (sx1302_hal, lora_pkt_fwd) lives outside this repo
+for now.
 
 ## Raw LoRa, not LoRaWAN
 
@@ -90,11 +90,13 @@ croptopus/
 ├── stations.csv                        # registry of flashed stations (auto-generated)
 ├── images/
 │   └── 3_32.jpeg                       # Grove base pinout
-└── xiao-station-flasher/
-    ├── setup_arduino_cli.sh            # one-time toolchain setup
-    ├── flash_xiao_station.sh           # flash one station; identity is MAC-derived
-    └── xiao_lora_sensor/
-        └── xiao_lora_sensor.ino        # the sensor sketch
+├── xiao-station-flasher/
+│   ├── setup_arduino_cli.sh            # one-time toolchain setup
+│   ├── flash_xiao_station.sh           # flash one station; identity is MAC-derived
+│   └── xiao_lora_sensor/
+│       └── xiao_lora_sensor.ino        # the sensor sketch
+└── bbb-listener/
+    └── lora_listener.py                # decodes 7-byte sensor frames from lora_pkt_fwd
 ```
 
 ## Station identity
@@ -400,24 +402,47 @@ That's how you later map a short ID seen on the gateway back to a physical
 station. Label the device housing with its short ID before deploying — the
 chips are visually identical.
 
-## Downstream change required: BBB listener decoder
+## BBB listener
 
-The Python listener on the BeagleBone (the `decode_sensor_payload` function
-in `lora_listener.py`, which lives outside this repo) currently expects the
-old **6-byte** layout with a **1-byte** station ID. After flashing any
-station with the new firmware, that decoder **must** be updated to:
+`bbb-listener/lora_listener.py` is the Python receiver that runs on the
+BeagleBone alongside `lora_pkt_fwd`. It opens UDP/1700 on `127.0.0.1`,
+speaks the Semtech packet-forwarder protocol (PUSH_DATA + PULL_DATA, with
+ACKs), base64-decodes each received frame, and prints one human-readable
+line per uplink along with RF metadata (frequency, RSSI, SNR, datarate).
 
-- Expect **7-byte** payloads.
-- Read offsets `[0..1]` as a **uint16 big-endian short ID** instead of a
-  uint8 at offset `0`.
-- Shift the other field offsets by +1 (temperature now at `[2..3]`,
-  humidity at `[4..5]`, soil at `[6]`).
-- Demultiplex on the 16-bit short ID rather than the 1-byte station ID.
+It uses **only Python stdlib** — no `pip install` step. Run it manually:
 
-Any historical data already stored with the old 6-byte / 1-byte ID format
-will also need a migration plan (rename per-station series, or carry the
-old ID alongside the new short ID). This repo doesn't touch that —
-flagged here so it isn't forgotten.
+```bash
+python3 bbb-listener/lora_listener.py
+```
+
+Or wire it up as a systemd unit alongside `lora_pkt_fwd`.
+
+Output looks like:
+
+```
+21:14:08 INFO    [2026-05-28 19:14:08Z] station 0x4F2A  T=23.13°C  RH=58.61%  soil= 13%   (868.1 MHz, RSSI -47 dBm, SNR  9.5 dB, SF7BW125)
+```
+
+Frames that aren't 7 bytes (other LoRa traffic, stations still running the
+old 6-byte firmware) are printed as a hex dump with the same RF metadata so
+you can see what else is on the air.
+
+To map a short ID back to a physical device, look it up in `stations.csv`
+at the repo root — that's the registry `flash_xiao_station.sh` maintains.
+
+### Migrating from the old 6-byte format
+
+If you have stations in the field still running the old 6-byte / 1-byte
+station-ID firmware, the listener will print them as "unknown payload" hex
+dumps rather than decoding them — `decode_sensor_payload` only accepts the
+new 7-byte length. Reflash any old stations with the new firmware (see
+`xiao-station-flasher/`) and they'll start decoding.
+
+Any historical data already stored under the old 1-byte station-ID space
+will need its own migration plan (rename per-station series, or carry the
+old ID alongside the new short ID). This repo doesn't try to migrate
+existing storage — flagged here so it isn't forgotten.
 
 ## Troubleshooting
 
