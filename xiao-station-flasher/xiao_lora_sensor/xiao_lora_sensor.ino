@@ -7,42 +7,36 @@
  * compatible). RadioLib's default sync word is 0x12 ("private") and would
  * be ignored — hence the explicit `radio.setSyncWord(0x34)` below.
  *
- * Each device must have a unique STATION_ID so the BBB listener can tell them
- * apart. Don't use 0.
+ * Identity
+ *   Each station has a stable, globally-unique physical identity derived from
+ *   the ESP32-S3 factory MAC (read from eFuse). A 16-bit "short ID" is derived
+ *   from the 6-byte MAC via FNV-1a-16 (FNV-1a folded to 16 bits) and that is
+ *   what travels in the LoRa payload — the full MAC stays on-device but is
+ *   reported on the serial banner at boot so the flashing script can record it.
+ *
+ *   Manual override: if -DSTATION_ID_OVERRIDE=N is passed at compile time, the
+ *   short ID becomes N instead of the MAC-derived hash. Useful for testing and
+ *   forcing a known ID. The MAC is still read and printed regardless. The
+ *   flash_xiao_station.sh script uses MAC mode by default; pass --force-id N
+ *   to take the override path.
  *
  * Required Arduino libraries (Library Manager)
  *   - RadioLib by Jan Gromes, version 6.0.0 or newer (any modern version works)
  *   - Grove - Temperature & Humidity Sensor (SHT3x) by Seeed Studio
  *
  * Board package
- *   - "esp32" by Espressif Systems, 2.0.14 or newer
+ *   - "esp32" by Espressif Systems, 3.x (ESP-IDF 5.x based)
  *   - Board selected: "XIAO_ESP32S3"
- *
- * Flashing
- *   - Manual: open in Arduino IDE, edit STATION_ID default below if needed, upload.
- *   - Scripted: use flash_xiao_station.sh which passes STATION_ID via -DSTATION_ID_OVERRIDE=N
- *     and leaves this source file untouched.
  */
 
 #include <Wire.h>
 #include "Seeed_SHT35.h"
 #include <RadioLib.h>
+#include "esp_mac.h"
 
 // ============================================================================
 // === PER-DEVICE CONFIGURATION ==============================================
 // ============================================================================
-
-// Station identifier (1-255). UNIQUE per device. Reserve 0.
-//
-// At compile time, STATION_ID_OVERRIDE (passed as a -D flag) takes precedence
-// over the default below. The flash_xiao_station.sh script always sets it.
-// If you flash from Arduino IDE without the script, the default is used —
-// edit it here if you need a different value.
-#ifdef STATION_ID_OVERRIDE
-  const uint8_t STATION_ID = STATION_ID_OVERRIDE;
-#else
-  const uint8_t STATION_ID = 1;
-#endif
 
 // Uplink interval in milliseconds.
 //   60000  (1 min)  — fine for raw LoRa; you set your own rules here.
@@ -86,6 +80,26 @@ SHT35 sensor(SCLPIN);
 SX1262 radio = new Module(41, 39, 42, 40);
 
 // ============================================================================
+// === IDENTITY ==============================================================
+// ============================================================================
+
+uint8_t  STATION_MAC[6] = {0};
+uint16_t STATION_SHORT_ID = 0;
+
+// FNV-1a hash, 32-bit pipeline folded to 16 bits via XOR of the halves.
+// Deterministic, no library, good distribution for a 6-byte input.
+static uint16_t fnv1a_16(const uint8_t *data, size_t len) {
+  const uint32_t FNV_PRIME  = 0x01000193UL;
+  const uint32_t FNV_OFFSET = 0x811C9DC5UL;
+  uint32_t h = FNV_OFFSET;
+  for (size_t i = 0; i < len; i++) {
+    h ^= (uint32_t)data[i];
+    h *= FNV_PRIME;
+  }
+  return (uint16_t)((h >> 16) ^ (h & 0xFFFFUL));
+}
+
+// ============================================================================
 
 bool radioReady = false;
 
@@ -93,9 +107,30 @@ void setup() {
   Serial.begin(115200);
   delay(2500);
   Serial.println();
-  Serial.print(F("=== XIAO sensor station #"));
-  Serial.print(STATION_ID);
-  Serial.println(F(" ==="));
+  Serial.println(F("=== XIAO sensor station ==="));
+
+  // --- Identity: read factory MAC from eFuse, derive 16-bit short ID --------
+  esp_efuse_mac_get_default(STATION_MAC);
+
+  #ifdef STATION_ID_OVERRIDE
+    STATION_SHORT_ID = (uint16_t)(STATION_ID_OVERRIDE);
+  #else
+    STATION_SHORT_ID = fnv1a_16(STATION_MAC, 6);
+  #endif
+
+  char macStr[18];
+  snprintf(macStr, sizeof(macStr), "%02X:%02X:%02X:%02X:%02X:%02X",
+           STATION_MAC[0], STATION_MAC[1], STATION_MAC[2],
+           STATION_MAC[3], STATION_MAC[4], STATION_MAC[5]);
+  Serial.print(F("STATION MAC: "));      Serial.println(macStr);
+  Serial.print(F("STATION SHORT_ID: 0x"));
+  if (STATION_SHORT_ID < 0x1000) Serial.print('0');
+  if (STATION_SHORT_ID < 0x0100) Serial.print('0');
+  if (STATION_SHORT_ID < 0x0010) Serial.print('0');
+  Serial.println(STATION_SHORT_ID, HEX);
+  #ifdef STATION_ID_OVERRIDE
+    Serial.println(F("(short ID is from STATION_ID_OVERRIDE, not MAC hash)"));
+  #endif
 
   // --- I2C + SHT35 ----------------------------------------------------------
   Wire.begin(SDAPIN, SCLPIN);
@@ -107,10 +142,7 @@ void setup() {
   pinMode(SOIL_PIN, INPUT);
 
   // --- SX1262 radio init ----------------------------------------------------
-  Serial.print(F("Radio init... "));  
-  // RadioLib 7.7.0 begin() structure:
-  // freq, bw, sf, cr, syncWord, power, preambleLength, tcxoVoltage
-  // Setting tcxoVoltage to 0.0f disables TCXO checking and switches to standard XTAL mode.
+  Serial.print(F("Radio init... "));
   int16_t state = radio.begin(LORA_FREQ_MHZ);
   if (state != RADIOLIB_ERR_NONE) {
     Serial.print(F("FAILED, code ")); Serial.println(state);
@@ -164,24 +196,25 @@ void loop() {
   Serial.println(F(" %"));
 
   // ==========================================================================
-  // === Pack 6-byte payload ==================================================
+  // === Pack 7-byte payload ==================================================
   // ==========================================================================
-  //   [0]    uint8   station ID
-  //   [1..2] int16   temperature × 100 BE  (0x8000 sentinel = SHT35 fail)
-  //   [3..4] uint16  humidity × 100 BE     (0xFFFF sentinel = SHT35 fail)
-  //   [5]    uint8   soil moisture %       (0..100)
+  //   [0..1] uint16  short station ID BE   (MAC-derived, or STATION_ID_OVERRIDE)
+  //   [2..3] int16   temperature × 100 BE  (0x8000 sentinel = SHT35 fail)
+  //   [4..5] uint16  humidity × 100 BE     (0xFFFF sentinel = SHT35 fail)
+  //   [6]    uint8   soil moisture %       (0..100)
 
   int16_t  tEnc = shtOk ? (int16_t)(temp * 100.0f) : (int16_t)0x8000;
   uint16_t hEnc = shtOk ? (uint16_t)(hum  * 100.0f) : 0xFFFF;
   uint8_t  sEnc = (uint8_t)constrain((int)soilPct, 0, 100);
 
-  uint8_t payload[6];
-  payload[0] = STATION_ID;
-  payload[1] = (tEnc >> 8) & 0xFF;
-  payload[2] =  tEnc       & 0xFF;
-  payload[3] = (hEnc >> 8) & 0xFF;
-  payload[4] =  hEnc       & 0xFF;
-  payload[5] = sEnc;
+  uint8_t payload[7];
+  payload[0] = (STATION_SHORT_ID >> 8) & 0xFF;
+  payload[1] =  STATION_SHORT_ID       & 0xFF;
+  payload[2] = (tEnc >> 8) & 0xFF;
+  payload[3] =  tEnc       & 0xFF;
+  payload[4] = (hEnc >> 8) & 0xFF;
+  payload[5] =  hEnc       & 0xFF;
+  payload[6] = sEnc;
 
   // --- Transmit ------------------------------------------------------------
   if (radioReady) {

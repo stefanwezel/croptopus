@@ -2,44 +2,92 @@
 #
 # flash_xiao_station.sh
 #
-# Flash a connected XIAO ESP32S3 with the LoRa sensor sketch, baking in
-# a specific STATION_ID via compile-time flag.
+# Flash a connected XIAO ESP32S3 with the LoRa sensor sketch. Identity is now
+# derived from the ESP32-S3 factory MAC (read from eFuse at boot) — no manual
+# STATION_ID assignment is needed. After upload the script briefly opens the
+# serial port to capture the device's MAC + short ID from the boot banner and
+# appends a row to ../stations.csv so we have a registry of every flashed unit.
 #
 # Usage:
-#   ./flash_xiao_station.sh <station_id>
+#   ./flash_xiao_station.sh [station_label] [--force-id N]
 #
-# Example:
-#   ./flash_xiao_station.sh 2
+# Arguments:
+#   station_label   Optional human label recorded in stations.csv ("greenhouse",
+#                   "back garden", etc.). Pass quoted if it contains spaces.
+#
+# Flags:
+#   --force-id N    Bypass MAC-derived identity and bake short ID = N (1..65535)
+#                   in at compile time. Useful for testing or pinning a known
+#                   ID. Default mode (no flag) is MAC-derived.
+#
+# Examples:
+#   ./flash_xiao_station.sh
+#   ./flash_xiao_station.sh greenhouse
+#   ./flash_xiao_station.sh test-rig --force-id 42
 #
 # Requirements (one-time):
 #   - Run setup_arduino_cli.sh first.
 #
 # Safety:
-#   - If more than one XIAO is detected on USB, the script aborts. Unplug
-#     all but the target XIAO before retrying. This prevents accidentally
-#     re-flashing an existing station.
+#   - If more than one XIAO is detected on USB, the script aborts. Unplug all
+#     but the target XIAO before retrying.
 
 set -euo pipefail
 
 # --- Parse arguments --------------------------------------------------------
 
-if [ $# -ne 1 ]; then
-    echo "Usage: $0 <station_id>"
-    echo "  station_id: integer between 1 and 255"
-    exit 1
+STATION_LABEL=""
+FORCE_ID=""
+
+while [ $# -gt 0 ]; do
+    case "$1" in
+        --force-id)
+            if [ $# -lt 2 ]; then
+                echo "Error: --force-id requires a value"
+                exit 1
+            fi
+            FORCE_ID="$2"
+            shift 2
+            ;;
+        --force-id=*)
+            FORCE_ID="${1#*=}"
+            shift
+            ;;
+        -h|--help)
+            sed -n '3,30p' "$0" | sed 's/^# \{0,1\}//'
+            exit 0
+            ;;
+        --*)
+            echo "Error: unknown flag: $1"
+            exit 1
+            ;;
+        *)
+            if [ -z "$STATION_LABEL" ]; then
+                STATION_LABEL="$1"
+            else
+                echo "Error: unexpected positional argument: $1"
+                echo "  station_label can only be given once. Quote it if it contains spaces."
+                exit 1
+            fi
+            shift
+            ;;
+    esac
+done
+
+if [ -n "$FORCE_ID" ]; then
+    if ! [[ "$FORCE_ID" =~ ^[0-9]+$ ]] || \
+       [ "$FORCE_ID" -lt 1 ] || [ "$FORCE_ID" -gt 65535 ]; then
+        echo "Error: --force-id must be an integer 1..65535 (got: $FORCE_ID)"
+        exit 1
+    fi
 fi
 
-STATION_ID="$1"
-if ! [[ "$STATION_ID" =~ ^[0-9]+$ ]] || \
-   [ "$STATION_ID" -lt 1 ] || [ "$STATION_ID" -gt 255 ]; then
-    echo "Error: station_id must be an integer 1..255 (got: $STATION_ID)"
-    exit 1
-fi
-
-# --- Locate sketch ----------------------------------------------------------
+# --- Locate sketch + registry ----------------------------------------------
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 SKETCH_DIR="$SCRIPT_DIR/xiao_lora_sensor"
+REPO_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
+REGISTRY="$REPO_ROOT/stations.csv"
 FQBN="esp32:esp32:XIAO_ESP32S3"
 
 if [ ! -f "$SKETCH_DIR/xiao_lora_sensor.ino" ]; then
@@ -61,7 +109,7 @@ fi
 
 # --- Detect the XIAO --------------------------------------------------------
 
-echo "[1/3] Detecting XIAO ESP32S3..."
+echo "[1/5] Detecting XIAO ESP32S3..."
 
 # Refresh board list (board detection is sometimes stale right after a hotplug)
 sleep 1
@@ -114,13 +162,17 @@ echo "      Found at $PORT"
 
 # --- Compile ----------------------------------------------------------------
 
-echo "[2/3] Compiling with STATION_ID=$STATION_ID..."
+COMPILE_ARGS=(--fqbn "$FQBN")
+if [ -n "$FORCE_ID" ]; then
+    echo "[2/5] Compiling with --force-id $FORCE_ID (overrides MAC-derived ID)..."
+    COMPILE_ARGS+=(--build-property "compiler.cpp.extra_flags=-DSTATION_ID_OVERRIDE=$FORCE_ID")
+else
+    echo "[2/5] Compiling (identity will be MAC-derived at boot)..."
+fi
+COMPILE_ARGS+=("$SKETCH_DIR")
+
 COMPILE_LOG=$(mktemp)
-if arduino-cli compile \
-    --fqbn "$FQBN" \
-    --build-property "compiler.cpp.extra_flags=-DSTATION_ID_OVERRIDE=$STATION_ID" \
-    "$SKETCH_DIR" \
-    > "$COMPILE_LOG" 2>&1; then
+if arduino-cli compile "${COMPILE_ARGS[@]}" > "$COMPILE_LOG" 2>&1; then
     SIZE=$(grep -oP "Sketch uses \K\d+" "$COMPILE_LOG" | head -1 || echo "?")
     echo "      OK (binary: ${SIZE} bytes)"
     rm "$COMPILE_LOG"
@@ -133,7 +185,7 @@ fi
 
 # --- Upload -----------------------------------------------------------------
 
-echo "[3/3] Uploading to $PORT..."
+echo "[3/5] Uploading to $PORT..."
 UPLOAD_LOG=$(mktemp)
 if arduino-cli upload \
     --fqbn "$FQBN" \
@@ -155,14 +207,61 @@ else
     exit 1
 fi
 
+# --- Capture identity from boot banner --------------------------------------
+
+echo "[4/5] Capturing boot identity from $PORT (up to 12s)..."
+
+# Give the upload tool a moment to release the port and the chip to reset.
+sleep 1
+
+SERIAL_LOG=$(mktemp)
+# arduino-cli monitor runs until killed; we cap it with `timeout` and ignore
+# the resulting non-zero exit (124 on timeout) so the script keeps going.
+timeout 12 arduino-cli monitor \
+    -p "$PORT" \
+    --config "baudrate=115200" \
+    > "$SERIAL_LOG" 2>/dev/null || true
+
+MAC=$(grep -m1 "STATION MAC:" "$SERIAL_LOG" | awk '{print $NF}' || true)
+SHORT_ID=$(grep -m1 "STATION SHORT_ID:" "$SERIAL_LOG" | awk '{print $NF}' || true)
+rm -f "$SERIAL_LOG"
+
+if [ -z "$MAC" ] || [ -z "$SHORT_ID" ]; then
+    echo "      WARNING: boot banner not captured within 12s."
+    echo "      Upload succeeded but identity wasn't recorded. Read manually with:"
+    echo "        arduino-cli monitor -p $PORT --config baudrate=115200"
+    MAC="${MAC:-UNKNOWN}"
+    SHORT_ID="${SHORT_ID:-UNKNOWN}"
+else
+    echo "      MAC=$MAC  SHORT_ID=$SHORT_ID"
+fi
+
+# --- Append to registry -----------------------------------------------------
+
+echo "[5/5] Recording to $REGISTRY ..."
+if [ ! -f "$REGISTRY" ]; then
+    echo "timestamp,mac,short_id,station_label,port" > "$REGISTRY"
+fi
+TIMESTAMP=$(date -u +"%Y-%m-%dT%H:%M:%SZ")
+# Quote the label so commas/spaces in it don't break the CSV.
+LABEL_CSV=$(printf '%s' "$STATION_LABEL" | sed 's/"/""/g')
+printf '%s,%s,%s,"%s",%s\n' \
+    "$TIMESTAMP" "$MAC" "$SHORT_ID" "$LABEL_CSV" "$PORT" >> "$REGISTRY"
+echo "      Appended."
+
 # --- Done -------------------------------------------------------------------
 
 cat <<EOF
 
 ================================================================
-Done. XIAO is now station #$STATION_ID.
+Done.
+  MAC:        $MAC
+  SHORT_ID:   $SHORT_ID
+  Label:      ${STATION_LABEL:-(none)}
+  Port:       $PORT
+  Registry:   $REGISTRY
 
-To watch it boot, run:
+To watch it boot again, run:
     arduino-cli monitor -p $PORT --config baudrate=115200
 
 (Ctrl+C to exit the monitor.)
