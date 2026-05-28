@@ -17,12 +17,12 @@ sudo usermod -a -G dialout $USER && \
 sudo apt-get install git && \
 wget https://bootstrap.pypa.io/get-pip.py && \
 sudo python3 get-pip.py && \
-sudo pip3 install pyserial && \
+sudo pip install pyserial && \
 mkdir -p ~/Arduino/hardware/espressif && \
 cd ~/Arduino/hardware/espressif && \
 git clone https://github.com/espressif/arduino-esp32.git esp32 && \
 cd esp32/tools && \
-python3 get.py
+python get.py
 ```
 
 (3) Restart Arduino IDE
