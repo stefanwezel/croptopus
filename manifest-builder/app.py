@@ -174,9 +174,9 @@ def editor():
             flash("Manifest updated.", "ok")
         return redirect(url_for("editor"))
 
-    m = get_working()
-    errs = M.validate(m)
-    return render_template("editor.html", m=m, errors=errs)
+    # Validation errors surface only after a save attempt (via flash), not on
+    # plain GET — otherwise a fresh blank manifest greets you with errors.
+    return render_template("editor.html", m=get_working())
 
 
 @app.get("/export")

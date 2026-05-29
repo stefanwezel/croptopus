@@ -2,16 +2,6 @@
 {% block title %}Editor — Croptopus manifest builder{% endblock %}
 {% block content %}
 
-{% if errors %}
-<section class="card errors">
-  <h2>Validation errors</h2>
-  <ul>
-    {% for e in errors %}<li>{{ e }}</li>{% endfor %}
-  </ul>
-  <p>You can keep editing — saving with errors is allowed, but export will warn.</p>
-</section>
-{% endif %}
-
 <form method="post" action="{{ url_for('editor') }}" class="editor">
 
   <!-- ============ CUSTOMER ============ -->
