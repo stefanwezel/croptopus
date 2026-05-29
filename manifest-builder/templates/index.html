@@ -1,0 +1,81 @@
+{% extends "base.html" %}
+{% block content %}
+<section class="card">
+  <h1>Manifest builder</h1>
+  <p>
+    Author the canonical YAML manifest for the Croptopus LoRa sensor network:
+    gateways, sensor stations, database, dashboards, alerts. This builder is
+    the single source of truth — downstream artifacts (firmware config, DB
+    schema, dashboards) will be generated from it later.
+  </p>
+
+  <div class="three-up">
+    <form method="post" action="{{ url_for('new_manifest') }}">
+      <h2>Start blank</h2>
+      <p>Fresh manifest with sensible defaults. Empty gateways/nodes lists.</p>
+      <button type="submit">New manifest</button>
+    </form>
+
+    <form method="post" action="{{ url_for('load_example') }}">
+      <h2>Load example</h2>
+      <p>Bundled dummy manifest: one BBB gateway, two XIAO sensor stations.</p>
+      <button type="submit">Load example</button>
+    </form>
+
+    <form method="post" action="{{ url_for('upload') }}" enctype="multipart/form-data">
+      <h2>Upload existing</h2>
+      <p>Pick a manifest YAML file to edit.</p>
+      <input type="file" name="manifest" accept=".yaml,.yml,application/x-yaml">
+      <button type="submit">Upload</button>
+    </form>
+  </div>
+</section>
+
+<section class="card">
+  <h2>Saved configurations</h2>
+  <p class="muted">
+    Manifests persisted to <code>manifest-builder/saved/</code>. Use <em>Save</em>
+    in the editor to add one here. Drop a YAML file in that directory by hand
+    and it will appear here too.
+  </p>
+
+  {% if saved %}
+    <table class="saved-table">
+      <thead>
+        <tr>
+          <th>Name</th>
+          <th>Project</th>
+          <th>Env</th>
+          <th>Gateways</th>
+          <th>Nodes</th>
+          <th>Last saved (UTC)</th>
+          <th></th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for s in saved %}
+          <tr {% if s.broken %}class="broken"{% endif %}>
+            <td><code>{{ s.name }}</code></td>
+            <td>{{ s.project_name }}</td>
+            <td>{{ s.environment }}</td>
+            <td>{{ s.gateways }}</td>
+            <td>{{ s.nodes }}</td>
+            <td>{{ s.mtime.strftime('%Y-%m-%d %H:%M') }}</td>
+            <td class="row-actions">
+              <form method="post" action="{{ url_for('load_saved', name=s.name) }}">
+                <button type="submit" {% if s.broken %}disabled title="File unreadable"{% endif %}>Load</button>
+              </form>
+              <form method="post" action="{{ url_for('delete_saved', name=s.name) }}"
+                    onsubmit="return confirm('Delete saved configuration {{ s.name }}?');">
+                <button type="submit" class="danger">Delete</button>
+              </form>
+            </td>
+          </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  {% else %}
+    <p class="muted"><em>No saved configurations yet.</em></p>
+  {% endif %}
+</section>
+{% endblock %}

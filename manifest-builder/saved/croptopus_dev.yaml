@@ -1,0 +1,77 @@
+customer:
+  id: demo_farm
+  name: Demo Farm
+project:
+  id: croptopus_dev
+  name: Croptopus Dev
+  environment: dev
+  timezone: Europe/Berlin
+gateways:
+- id: bbb_gw01
+  ip: null
+  lorawan_region: EU868
+  site_name: Greenhouse 1 (BBB + WM1302)
+  location:
+    lat: 52.52
+    lon: 13.405
+nodes:
+- device_id: node_4f2a
+  hw_id: 8C:BF:EA:8E:E1:88
+  gateway_id: bbb_gw01
+  role: soil_sensor
+  location:
+    lat: 52.5201
+    lon: 13.4051
+    description: North greenhouse bed
+  sensors:
+  - type: temperature
+    channel: sht35
+  - type: humidity
+    channel: sht35
+  - type: soil_moisture
+    channel: a0
+  sampling:
+    interval_sec: 60
+    transmit_every_n_samples: 1
+- device_id: node_a7e1
+  hw_id: 8C:BF:EA:9C:02:14
+  gateway_id: bbb_gw01
+  role: soil_sensor
+  location:
+    lat: 52.5203
+    lon: 13.4055
+    description: South greenhouse bed
+  sensors:
+  - type: temperature
+    channel: sht35
+  - type: humidity
+    channel: sht35
+  - type: soil_moisture
+    channel: a0
+  sampling:
+    interval_sec: 60
+    transmit_every_n_samples: 1
+database:
+  schema: croptopus
+  retention_days: 365
+  compression_after_days: 30
+grafana:
+  folder: Croptopus
+  datasource_name: croptopus_tsdb
+  dashboards:
+  - id: overview
+    enabled: true
+  - id: per_station
+    enabled: true
+alerts:
+  soil_dry:
+    enabled: true
+    threshold: 10
+    duration_min: 30
+  sensor_offline:
+    enabled: true
+    duration_min: 60
+  temp_freeze:
+    enabled: true
+    threshold: 2
+    duration_min: 15

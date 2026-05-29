@@ -1,0 +1,329 @@
+{% extends "base.html" %}
+{% block title %}Editor — Croptopus manifest builder{% endblock %}
+{% block content %}
+
+{% if errors %}
+<section class="card errors">
+  <h2>Validation errors</h2>
+  <ul>
+    {% for e in errors %}<li>{{ e }}</li>{% endfor %}
+  </ul>
+  <p>You can keep editing — saving with errors is allowed, but export will warn.</p>
+</section>
+{% endif %}
+
+<form method="post" action="{{ url_for('editor') }}" class="editor">
+
+  <!-- ============ CUSTOMER ============ -->
+  <details open class="card">
+    <summary><h2>Customer</h2></summary>
+    <div class="grid two">
+      <label>id<input name="customer[id]" value="{{ m.customer.id or '' }}"></label>
+      <label>name<input name="customer[name]" value="{{ m.customer.name or '' }}"></label>
+    </div>
+  </details>
+
+  <!-- ============ PROJECT ============ -->
+  <details open class="card">
+    <summary><h2>Project</h2></summary>
+    <div class="grid two">
+      <label>id<input name="project[id]" value="{{ m.project.id or '' }}"></label>
+      <label>name<input name="project[name]" value="{{ m.project.name or '' }}"></label>
+      <label>environment
+        <select name="project[environment]">
+          {% for env in ['prod', 'staging', 'dev'] %}
+            <option value="{{ env }}" {% if m.project.environment == env %}selected{% endif %}>{{ env }}</option>
+          {% endfor %}
+        </select>
+      </label>
+      <label>timezone<input name="project[timezone]" value="{{ m.project.timezone or '' }}"></label>
+    </div>
+  </details>
+
+  <!-- ============ GATEWAYS ============ -->
+  <details open class="card">
+    <summary><h2>Gateways</h2></summary>
+    <div id="gateways-container">
+      {% for gw in m.gateways %}
+        {% set i = loop.index0 %}
+        <fieldset class="row" data-index="{{ i }}">
+          <legend>Gateway #{{ i + 1 }}</legend>
+          <div class="grid two">
+            <label>id<input name="gateways[{{ i }}][id]" value="{{ gw.id or '' }}"></label>
+            <label>ip<input name="gateways[{{ i }}][ip]" value="{{ gw.ip or '' }}"></label>
+            <label>lorawan_region<input name="gateways[{{ i }}][lorawan_region]" value="{{ gw.lorawan_region or '' }}"></label>
+            <label>site_name<input name="gateways[{{ i }}][site_name]" value="{{ gw.site_name or '' }}"></label>
+            <label>location.lat<input type="number" step="any" name="gateways[{{ i }}][location][lat]" value="{{ gw.location.lat if gw.location and gw.location.lat is not none else '' }}"></label>
+            <label>location.lon<input type="number" step="any" name="gateways[{{ i }}][location][lon]" value="{{ gw.location.lon if gw.location and gw.location.lon is not none else '' }}"></label>
+          </div>
+          <button type="button" class="danger" onclick="removeRow(this)">Remove gateway</button>
+        </fieldset>
+      {% endfor %}
+    </div>
+    <button type="button" onclick="addGateway()">+ Add gateway</button>
+  </details>
+
+  <!-- ============ NODES ============ -->
+  <details open class="card">
+    <summary><h2>Sensor stations (nodes)</h2></summary>
+    <div id="nodes-container">
+      {% for n in m.nodes %}
+        {% set i = loop.index0 %}
+        <fieldset class="row" data-index="{{ i }}">
+          <legend>Node #{{ i + 1 }}</legend>
+          <div class="grid two">
+            <label>device_id<input name="nodes[{{ i }}][device_id]" value="{{ n.device_id or '' }}"></label>
+            <label>hw_id<input name="nodes[{{ i }}][hw_id]" value="{{ n.hw_id or '' }}"></label>
+            <label>gateway_id<input name="nodes[{{ i }}][gateway_id]" value="{{ n.gateway_id or '' }}"></label>
+            <label>role<input name="nodes[{{ i }}][role]" value="{{ n.role or '' }}"></label>
+            <label>location.lat<input type="number" step="any" name="nodes[{{ i }}][location][lat]" value="{{ n.location.lat if n.location and n.location.lat is not none else '' }}"></label>
+            <label>location.lon<input type="number" step="any" name="nodes[{{ i }}][location][lon]" value="{{ n.location.lon if n.location and n.location.lon is not none else '' }}"></label>
+            <label class="full">location.description<input name="nodes[{{ i }}][location][description]" value="{{ n.location.description if n.location else '' }}"></label>
+            <label>sampling.interval_sec<input type="number" name="nodes[{{ i }}][sampling][interval_sec]" value="{{ n.sampling.interval_sec if n.sampling and n.sampling.interval_sec is not none else '' }}"></label>
+            <label>sampling.transmit_every_n_samples<input type="number" name="nodes[{{ i }}][sampling][transmit_every_n_samples]" value="{{ n.sampling.transmit_every_n_samples if n.sampling and n.sampling.transmit_every_n_samples is not none else '' }}"></label>
+          </div>
+
+          <h4>Sensors</h4>
+          <div class="sensors-container" data-node-index="{{ i }}">
+            {% for s in (n.sensors or []) %}
+              {% set j = loop.index0 %}
+              <div class="row inline" data-index="{{ j }}">
+                <label>type<input name="nodes[{{ i }}][sensors][{{ j }}][type]" value="{{ s.type or '' }}"></label>
+                <label>channel<input name="nodes[{{ i }}][sensors][{{ j }}][channel]" value="{{ s.channel or '' }}"></label>
+                <button type="button" class="danger" onclick="removeRow(this)">Remove</button>
+              </div>
+            {% endfor %}
+          </div>
+          <button type="button" onclick="addSensor(this, {{ i }})">+ Add sensor</button>
+          <hr>
+          <button type="button" class="danger" onclick="removeRow(this)">Remove node</button>
+        </fieldset>
+      {% endfor %}
+    </div>
+    <button type="button" onclick="addNode()">+ Add node</button>
+  </details>
+
+  <!-- ============ DATABASE ============ -->
+  <details open class="card">
+    <summary><h2>Database</h2></summary>
+    <div class="grid two">
+      <label>schema<input name="database[schema]" value="{{ m.database.schema or '' }}"></label>
+      <label>retention_days<input type="number" name="database[retention_days]" value="{{ m.database.retention_days if m.database.retention_days is not none else '' }}"></label>
+      <label>compression_after_days<input type="number" name="database[compression_after_days]" value="{{ m.database.compression_after_days if m.database.compression_after_days is not none else '' }}"></label>
+    </div>
+  </details>
+
+  <!-- ============ GRAFANA ============ -->
+  <details open class="card">
+    <summary><h2>Grafana</h2></summary>
+    <div class="grid two">
+      <label>folder<input name="grafana[folder]" value="{{ m.grafana.folder or '' }}"></label>
+      <label>datasource_name<input name="grafana[datasource_name]" value="{{ m.grafana.datasource_name or '' }}"></label>
+    </div>
+    <h4>Dashboards</h4>
+    <div id="dashboards-container">
+      {% for d in (m.grafana.dashboards or []) %}
+        {% set i = loop.index0 %}
+        <div class="row inline" data-index="{{ i }}">
+          <label>id<input name="grafana[dashboards][{{ i }}][id]" value="{{ d.id or '' }}"></label>
+          <label class="cb">enabled
+            <input type="checkbox" name="grafana[dashboards][{{ i }}][enabled]" {% if d.enabled %}checked{% endif %}>
+          </label>
+          <button type="button" class="danger" onclick="removeRow(this)">Remove</button>
+        </div>
+      {% endfor %}
+    </div>
+    <button type="button" onclick="addDashboard()">+ Add dashboard</button>
+  </details>
+
+  <!-- ============ ALERTS ============ -->
+  <details open class="card">
+    <summary><h2>Alerts</h2></summary>
+    <div id="alerts-container">
+      {% for name, a in (m.alerts or {}).items() %}
+        {% set i = loop.index0 %}
+        <fieldset class="row" data-index="{{ i }}">
+          <legend>Alert #{{ i + 1 }}</legend>
+          <div class="grid two">
+            <label>name<input name="alerts[{{ i }}][name]" value="{{ name }}"></label>
+            <label class="cb">enabled
+              <input type="checkbox" name="alerts[{{ i }}][enabled]" {% if a.enabled %}checked{% endif %}>
+            </label>
+            <label>threshold (optional)<input type="number" step="any" name="alerts[{{ i }}][threshold]" value="{{ a.threshold if a.threshold is not none else '' }}"></label>
+            <label>duration_min<input type="number" name="alerts[{{ i }}][duration_min]" value="{{ a.duration_min if a.duration_min is not none else '' }}"></label>
+          </div>
+          <button type="button" class="danger" onclick="removeRow(this)">Remove alert</button>
+        </fieldset>
+      {% endfor %}
+    </div>
+    <button type="button" onclick="addAlert()">+ Add alert</button>
+  </details>
+
+  <div class="actions">
+    <button type="submit" class="primary">Apply changes</button>
+    <a class="button" href="{{ url_for('export') }}">Download YAML</a>
+    <a class="button" href="{{ url_for('raw_yaml') }}" target="_blank">View raw YAML</a>
+  </div>
+</form>
+
+<section class="card">
+  <h2>Save configuration</h2>
+  <p class="muted">
+    Persist the current manifest under a name. Saved files live in
+    <code>manifest-builder/saved/</code> and are listed on the home page.
+    Apply your changes first if you want them included.
+  </p>
+  <form method="post" action="{{ url_for('save_named') }}" class="save-row">
+    <label>name
+      <input name="name" value="{{ m.project.id or '' }}" placeholder="e.g. croptopus_dev"
+             pattern="[a-zA-Z0-9][a-zA-Z0-9_.\-]{0,63}"
+             title="Letters, digits, _ . - (max 64 chars)">
+    </label>
+    <button type="submit" class="primary">Save</button>
+  </form>
+</section>
+
+<!-- Hidden templates that JS clones for new rows. {{IDX}} is replaced by JS. -->
+
+<template id="tpl-gateway">
+<fieldset class="row" data-index="{{ '{{IDX}}' }}">
+  <legend>Gateway #__N__</legend>
+  <div class="grid two">
+    <label>id<input name="gateways[{{ '{{IDX}}' }}][id]"></label>
+    <label>ip<input name="gateways[{{ '{{IDX}}' }}][ip]"></label>
+    <label>lorawan_region<input name="gateways[{{ '{{IDX}}' }}][lorawan_region]" value="EU868"></label>
+    <label>site_name<input name="gateways[{{ '{{IDX}}' }}][site_name]"></label>
+    <label>location.lat<input type="number" step="any" name="gateways[{{ '{{IDX}}' }}][location][lat]"></label>
+    <label>location.lon<input type="number" step="any" name="gateways[{{ '{{IDX}}' }}][location][lon]"></label>
+  </div>
+  <button type="button" class="danger" onclick="removeRow(this)">Remove gateway</button>
+</fieldset>
+</template>
+
+<template id="tpl-node">
+<fieldset class="row" data-index="{{ '{{IDX}}' }}">
+  <legend>Node #__N__</legend>
+  <div class="grid two">
+    <label>device_id<input name="nodes[{{ '{{IDX}}' }}][device_id]"></label>
+    <label>hw_id<input name="nodes[{{ '{{IDX}}' }}][hw_id]"></label>
+    <label>gateway_id<input name="nodes[{{ '{{IDX}}' }}][gateway_id]"></label>
+    <label>role<input name="nodes[{{ '{{IDX}}' }}][role]"></label>
+    <label>location.lat<input type="number" step="any" name="nodes[{{ '{{IDX}}' }}][location][lat]"></label>
+    <label>location.lon<input type="number" step="any" name="nodes[{{ '{{IDX}}' }}][location][lon]"></label>
+    <label class="full">location.description<input name="nodes[{{ '{{IDX}}' }}][location][description]"></label>
+    <label>sampling.interval_sec<input type="number" name="nodes[{{ '{{IDX}}' }}][sampling][interval_sec]" value="60"></label>
+    <label>sampling.transmit_every_n_samples<input type="number" name="nodes[{{ '{{IDX}}' }}][sampling][transmit_every_n_samples]" value="1"></label>
+  </div>
+  <h4>Sensors</h4>
+  <div class="sensors-container" data-node-index="{{ '{{IDX}}' }}"></div>
+  <button type="button" onclick="addSensor(this, {{ '{{IDX}}' }})">+ Add sensor</button>
+  <hr>
+  <button type="button" class="danger" onclick="removeRow(this)">Remove node</button>
+</fieldset>
+</template>
+
+<template id="tpl-sensor">
+<div class="row inline" data-index="{{ '{{IDX}}' }}">
+  <label>type<input name="nodes[{{ '{{NODE}}' }}][sensors][{{ '{{IDX}}' }}][type]"></label>
+  <label>channel<input name="nodes[{{ '{{NODE}}' }}][sensors][{{ '{{IDX}}' }}][channel]"></label>
+  <button type="button" class="danger" onclick="removeRow(this)">Remove</button>
+</div>
+</template>
+
+<template id="tpl-dashboard">
+<div class="row inline" data-index="{{ '{{IDX}}' }}">
+  <label>id<input name="grafana[dashboards][{{ '{{IDX}}' }}][id]"></label>
+  <label class="cb">enabled
+    <input type="checkbox" name="grafana[dashboards][{{ '{{IDX}}' }}][enabled]" checked>
+  </label>
+  <button type="button" class="danger" onclick="removeRow(this)">Remove</button>
+</div>
+</template>
+
+<template id="tpl-alert">
+<fieldset class="row" data-index="{{ '{{IDX}}' }}">
+  <legend>Alert #__N__</legend>
+  <div class="grid two">
+    <label>name<input name="alerts[{{ '{{IDX}}' }}][name]"></label>
+    <label class="cb">enabled
+      <input type="checkbox" name="alerts[{{ '{{IDX}}' }}][enabled]" checked>
+    </label>
+    <label>threshold (optional)<input type="number" step="any" name="alerts[{{ '{{IDX}}' }}][threshold]"></label>
+    <label>duration_min<input type="number" name="alerts[{{ '{{IDX}}' }}][duration_min]"></label>
+  </div>
+  <button type="button" class="danger" onclick="removeRow(this)">Remove alert</button>
+</fieldset>
+</template>
+
+<script>
+function nextIndex(container) {
+  // Indices are placed on .row elements via data-index. Gaps are fine —
+  // server parser discovers indices by regex.
+  let max = -1;
+  container.querySelectorAll(':scope > .row').forEach(el => {
+    const i = parseInt(el.dataset.index, 10);
+    if (!isNaN(i) && i > max) max = i;
+  });
+  return max + 1;
+}
+
+function cloneTemplate(tplId, replacements) {
+  const tpl = document.getElementById(tplId);
+  let html = tpl.innerHTML;
+  for (const [k, v] of Object.entries(replacements)) {
+    html = html.split(k).join(v);
+  }
+  const wrap = document.createElement('div');
+  wrap.innerHTML = html.trim();
+  return wrap.firstElementChild;
+}
+
+function addGateway() {
+  const c = document.getElementById('gateways-container');
+  const idx = nextIndex(c);
+  const el = cloneTemplate('tpl-gateway', { '{{IDX}}': String(idx) });
+  el.querySelector('legend').textContent = `Gateway #${c.querySelectorAll(':scope > .row').length + 1}`;
+  c.appendChild(el);
+}
+
+function addNode() {
+  const c = document.getElementById('nodes-container');
+  const idx = nextIndex(c);
+  const el = cloneTemplate('tpl-node', { '{{IDX}}': String(idx) });
+  el.querySelector('legend').textContent = `Node #${c.querySelectorAll(':scope > .row').length + 1}`;
+  c.appendChild(el);
+}
+
+function addSensor(btn, nodeIdx) {
+  const fieldset = btn.closest('fieldset.row');
+  const c = fieldset.querySelector('.sensors-container');
+  const idx = nextIndex(c);
+  const el = cloneTemplate('tpl-sensor', {
+    '{{IDX}}': String(idx),
+    '{{NODE}}': String(nodeIdx),
+  });
+  c.appendChild(el);
+}
+
+function addDashboard() {
+  const c = document.getElementById('dashboards-container');
+  const idx = nextIndex(c);
+  const el = cloneTemplate('tpl-dashboard', { '{{IDX}}': String(idx) });
+  c.appendChild(el);
+}
+
+function addAlert() {
+  const c = document.getElementById('alerts-container');
+  const idx = nextIndex(c);
+  const el = cloneTemplate('tpl-alert', { '{{IDX}}': String(idx) });
+  el.querySelector('legend').textContent = `Alert #${c.querySelectorAll(':scope > .row').length + 1}`;
+  c.appendChild(el);
+}
+
+function removeRow(btn) {
+  const row = btn.closest('.row');
+  if (row) row.remove();
+}
+</script>
+
+{% endblock %}
