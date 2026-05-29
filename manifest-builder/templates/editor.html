@@ -46,6 +46,7 @@
             <label>location.lat<input type="number" step="any" name="gateways[{{ i }}][location][lat]" value="{{ gw.location.lat if gw.location and gw.location.lat is not none else '' }}"></label>
             <label>location.lon<input type="number" step="any" name="gateways[{{ i }}][location][lon]" value="{{ gw.location.lon if gw.location and gw.location.lon is not none else '' }}"></label>
           </div>
+          <button type="button" onclick="duplicateGateway(this)">Duplicate gateway</button>
           <button type="button" class="danger" onclick="removeRow(this)">Remove gateway</button>
         </fieldset>
       {% endfor %}
@@ -187,6 +188,7 @@
     <label>location.lat<input type="number" step="any" name="gateways[{{ '{{IDX}}' }}][location][lat]"></label>
     <label>location.lon<input type="number" step="any" name="gateways[{{ '{{IDX}}' }}][location][lon]"></label>
   </div>
+  <button type="button" onclick="duplicateGateway(this)">Duplicate gateway</button>
   <button type="button" class="danger" onclick="removeRow(this)">Remove gateway</button>
 </fieldset>
 </template>
@@ -300,38 +302,53 @@ function addSensor(btn) {
   c.appendChild(el);
 }
 
-function duplicateNode(btn) {
-  const src = btn.closest('fieldset.row');
-  const container = document.getElementById('nodes-container');
+// Clone a fieldset row, rewriting every name="prefix[OLD]..." to use a new
+// index, and append it after the source. Returns the clone so callers can
+// patch fields (e.g. suffix an id to avoid collisions).
+function duplicateRow(src, containerId, prefix) {
+  const container = document.getElementById(containerId);
   const oldIdx = src.dataset.index;
   const newIdx = nextIndex(container);
 
   const dup = src.cloneNode(true);
   dup.dataset.index = String(newIdx);
 
-  // Rewrite every name= attribute that scopes to the old node index.
-  const oldPrefix = `nodes[${oldIdx}]`;
-  const newPrefix = `nodes[${newIdx}]`;
+  const oldName = `${prefix}[${oldIdx}]`;
+  const newName = `${prefix}[${newIdx}]`;
   dup.querySelectorAll('[name]').forEach(el => {
-    if (el.name.startsWith(oldPrefix)) {
-      el.name = newPrefix + el.name.slice(oldPrefix.length);
+    if (el.name.startsWith(oldName)) {
+      el.name = newName + el.name.slice(oldName.length);
     }
   });
-  const sc = dup.querySelector('.sensors-container');
-  if (sc) sc.dataset.nodeIndex = String(newIdx);
 
   const legend = dup.querySelector('legend');
   if (legend) {
-    legend.textContent = `Node #${container.querySelectorAll(':scope > .row').length + 1}`;
-  }
-
-  // Tweak the device_id so the copy doesn't collide with the original.
-  const deviceInput = dup.querySelector(`[name="${newPrefix}[device_id]"]`);
-  if (deviceInput && deviceInput.value) {
-    deviceInput.value = deviceInput.value + '_copy';
+    const label = legend.textContent.replace(/#\d+$/, '').trim();
+    legend.textContent = `${label} #${container.querySelectorAll(':scope > .row').length + 1}`;
   }
 
   src.insertAdjacentElement('afterend', dup);
+  return { dup, newName };
+}
+
+function suffixCopy(dup, fieldName) {
+  const inp = dup.querySelector(`[name="${fieldName}"]`);
+  if (inp && inp.value) inp.value = inp.value + '_copy';
+}
+
+function duplicateNode(btn) {
+  const src = btn.closest('fieldset.row');
+  const { dup, newName } = duplicateRow(src, 'nodes-container', 'nodes');
+  // Keep the sensors-container's data-node-index in sync so addSensor works.
+  const sc = dup.querySelector('.sensors-container');
+  if (sc) sc.dataset.nodeIndex = dup.dataset.index;
+  suffixCopy(dup, `${newName}[device_id]`);
+}
+
+function duplicateGateway(btn) {
+  const src = btn.closest('fieldset.row');
+  const { dup, newName } = duplicateRow(src, 'gateways-container', 'gateways');
+  suffixCopy(dup, `${newName}[id]`);
 }
 
 function addDashboard() {
