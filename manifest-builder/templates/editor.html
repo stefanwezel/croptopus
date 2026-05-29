@@ -84,8 +84,9 @@
               </div>
             {% endfor %}
           </div>
-          <button type="button" onclick="addSensor(this, {{ i }})">+ Add sensor</button>
+          <button type="button" onclick="addSensor(this)">+ Add sensor</button>
           <hr>
+          <button type="button" onclick="duplicateNode(this)">Duplicate node</button>
           <button type="button" class="danger" onclick="removeRow(this)">Remove node</button>
         </fieldset>
       {% endfor %}
@@ -206,8 +207,9 @@
   </div>
   <h4>Sensors</h4>
   <div class="sensors-container" data-node-index="{{ '{{IDX}}' }}"></div>
-  <button type="button" onclick="addSensor(this, {{ '{{IDX}}' }})">+ Add sensor</button>
+  <button type="button" onclick="addSensor(this)">+ Add sensor</button>
   <hr>
+  <button type="button" onclick="duplicateNode(this)">Duplicate node</button>
   <button type="button" class="danger" onclick="removeRow(this)">Remove node</button>
 </fieldset>
 </template>
@@ -284,8 +286,11 @@ function addNode() {
   c.appendChild(el);
 }
 
-function addSensor(btn, nodeIdx) {
+function addSensor(btn) {
+  // Read the enclosing node's index from the DOM so this works for both
+  // originally-rendered nodes and ones added/duplicated client-side.
   const fieldset = btn.closest('fieldset.row');
+  const nodeIdx = fieldset.dataset.index;
   const c = fieldset.querySelector('.sensors-container');
   const idx = nextIndex(c);
   const el = cloneTemplate('tpl-sensor', {
@@ -293,6 +298,40 @@ function addSensor(btn, nodeIdx) {
     '{{NODE}}': String(nodeIdx),
   });
   c.appendChild(el);
+}
+
+function duplicateNode(btn) {
+  const src = btn.closest('fieldset.row');
+  const container = document.getElementById('nodes-container');
+  const oldIdx = src.dataset.index;
+  const newIdx = nextIndex(container);
+
+  const dup = src.cloneNode(true);
+  dup.dataset.index = String(newIdx);
+
+  // Rewrite every name= attribute that scopes to the old node index.
+  const oldPrefix = `nodes[${oldIdx}]`;
+  const newPrefix = `nodes[${newIdx}]`;
+  dup.querySelectorAll('[name]').forEach(el => {
+    if (el.name.startsWith(oldPrefix)) {
+      el.name = newPrefix + el.name.slice(oldPrefix.length);
+    }
+  });
+  const sc = dup.querySelector('.sensors-container');
+  if (sc) sc.dataset.nodeIndex = String(newIdx);
+
+  const legend = dup.querySelector('legend');
+  if (legend) {
+    legend.textContent = `Node #${container.querySelectorAll(':scope > .row').length + 1}`;
+  }
+
+  // Tweak the device_id so the copy doesn't collide with the original.
+  const deviceInput = dup.querySelector(`[name="${newPrefix}[device_id]"]`);
+  if (deviceInput && deviceInput.value) {
+    deviceInput.value = deviceInput.value + '_copy';
+  }
+
+  src.insertAdjacentElement('afterend', dup);
 }
 
 function addDashboard() {
