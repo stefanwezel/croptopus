@@ -1,0 +1,46 @@
+{% extends "base.html" %}
+{% block title %}Status — {{ name }}{% endblock %}
+{% block content %}
+
+{# green = in sync, yellow = drift/needs-apply, red = orphan #}
+{% macro status_badge(action) %}
+  {% if action == 'NO_CHANGE' %}<span class="badge badge-ok">● in sync</span>
+  {% elif action == 'CREATE' %}<span class="badge badge-warn">● missing</span>
+  {% elif action == 'UPDATE' %}<span class="badge badge-warn">● drift</span>
+  {% elif action == 'ORPHAN' %}<span class="badge badge-err">● orphan</span>
+  {% else %}<span class="badge badge-skip">● skipped</span>{% endif %}
+{% endmacro %}
+
+<section class="card">
+  <h1>Status · <code>{{ name }}</code></h1>
+  <p class="muted">Org <strong>{{ plan.org_name }}</strong> — schema <code>{{ plan.schema }}</code></p>
+
+  {% set drift = plan.changes | selectattr('action', 'in', ['CREATE', 'UPDATE', 'ORPHAN']) | list %}
+  {% if drift %}
+  <div class="warning-bar warning-soft">{{ drift|length }} resource(s) diverge from the manifest.</div>
+  {% else %}
+  <div class="result-bar result-ok">✓ Live infrastructure matches the manifest</div>
+  {% endif %}
+</section>
+
+{% for sect in ['timescale', 'grafana'] %}
+<section class="card">
+  <h2>{{ sect|capitalize }}</h2>
+  <table class="diff-table">
+    <thead><tr><th>State</th><th>Resource</th><th>Detail</th></tr></thead>
+    <tbody>
+    {% for c in plan.section(sect) %}
+      <tr><td>{{ status_badge(c.action) }}</td>
+          <td><code>{{ c.kind }}</code> {{ c.name }}</td>
+          <td>{{ c.detail }}</td></tr>
+    {% endfor %}
+    </tbody>
+  </table>
+</section>
+{% endfor %}
+
+<div class="actions">
+  <a class="button" href="{{ url_for('index') }}">← Back</a>
+  <a class="button primary" href="{{ url_for('plan_manifest', name=name) }}">Plan</a>
+</div>
+{% endblock %}

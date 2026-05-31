@@ -65,6 +65,13 @@
               <form method="post" action="{{ url_for('load_saved', name=s.name) }}">
                 <button type="submit" {% if s.broken %}disabled title="File unreadable"{% endif %}>Load</button>
               </form>
+              {% if not s.broken %}
+                <a class="button" href="{{ url_for('plan_manifest', name=s.name) }}">Plan</a>
+                <form method="post" action="{{ url_for('apply_manifest', name=s.name) }}">
+                  <button type="submit" class="primary" title="Applies the plan you most recently reviewed">Apply</button>
+                </form>
+                <a class="button" href="{{ url_for('status_manifest', name=s.name) }}">Status</a>
+              {% endif %}
               <form method="post" action="{{ url_for('delete_saved', name=s.name) }}"
                     onsubmit="return confirm('Delete saved configuration {{ s.name }}?');">
                 <button type="submit" class="danger">Delete</button>

@@ -1,0 +1,44 @@
+{% extends "base.html" %}
+{% block title %}Apply history{% endblock %}
+{% block content %}
+
+<section class="card">
+  <h1>Apply history</h1>
+  <table class="diff-table">
+    <thead>
+      <tr><th>When (UTC)</th><th>Manifest</th><th>Project</th><th>Result</th><th>Summary</th></tr>
+    </thead>
+    <tbody>
+    {% for e in entries %}
+      <tr>
+        <td>{{ e.timestamp }}</td>
+        <td><code>{{ e.manifest_id }}</code> <span class="muted">{{ e.manifest_hash }}</span></td>
+        <td>{{ e.customer_id }} / {{ e.project_id }}</td>
+        <td>
+          {% if e.success %}<span class="badge badge-ok">OK</span>
+          {% else %}<span class="badge badge-err">FAILED</span>{% endif %}
+        </td>
+        <td>
+          {{ e.plan_summary }}
+          {% if e.results %}
+          <details><summary>{{ e.results|length }} resource(s)</summary>
+            <ul class="muted">
+            {% for r in e.results %}
+              <li>[{{ r.status }}] {{ r.kind }} {{ r.name }} — {{ r.message }}</li>
+            {% endfor %}
+            </ul>
+          </details>
+          {% endif %}
+        </td>
+      </tr>
+    {% else %}
+      <tr><td colspan="5" class="muted">no applies yet</td></tr>
+    {% endfor %}
+    </tbody>
+  </table>
+</section>
+
+<div class="actions">
+  <a class="button" href="{{ url_for('index') }}">← Back</a>
+</div>
+{% endblock %}

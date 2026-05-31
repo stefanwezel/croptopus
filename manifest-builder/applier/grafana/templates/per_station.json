@@ -1,0 +1,45 @@
+{
+  "uid": "__UID__",
+  "title": "__TITLE__",
+  "tags": ["croptopus", "per-station"],
+  "timezone": "browser",
+  "schemaVersion": 39,
+  "refresh": "1m",
+  "time": { "from": "now-24h", "to": "now" },
+  "panels": [
+    {
+      "id": 1,
+      "type": "timeseries",
+      "title": "All sensors for selected device",
+      "datasource": { "type": "postgres", "uid": "__DS_UID__" },
+      "gridPos": { "h": 9, "w": 24, "x": 0, "y": 0 },
+      "fieldConfig": { "defaults": {}, "overrides": [] },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": { "type": "postgres", "uid": "__DS_UID__" },
+          "format": "time_series",
+          "rawQuery": true,
+          "rawSql": "SELECT time AS \"time\", sensor_type AS metric, value FROM __SCHEMA__.measurements WHERE $__timeFilter(time) ORDER BY time"
+        }
+      ]
+    },
+    {
+      "id": 2,
+      "type": "table",
+      "title": "Latest reading per device + sensor",
+      "datasource": { "type": "postgres", "uid": "__DS_UID__" },
+      "gridPos": { "h": 8, "w": 24, "x": 0, "y": 9 },
+      "options": { "showHeader": true },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": { "type": "postgres", "uid": "__DS_UID__" },
+          "format": "table",
+          "rawQuery": true,
+          "rawSql": "SELECT device_id, sensor_type, last(value, time) AS value, max(time) AS last_seen FROM __SCHEMA__.measurements GROUP BY device_id, sensor_type ORDER BY device_id, sensor_type"
+        }
+      ]
+    }
+  ]
+}

@@ -1,0 +1,39 @@
+{% extends "base.html" %}
+{% block title %}Apply — {{ name }}{% endblock %}
+{% block content %}
+
+<section class="card">
+  <h1>Apply · <code>{{ name }}</code></h1>
+
+  {% if result.success %}
+  <div class="result-bar result-ok">✓ Apply completed successfully</div>
+  {% else %}
+  <div class="result-bar result-err">✗ Apply finished with errors — see per-resource status</div>
+  {% endif %}
+
+  <table class="diff-table">
+    <thead><tr><th>Status</th><th>Resource</th><th>Action</th><th>Message</th></tr></thead>
+    <tbody>
+    {% for r in result.results %}
+      <tr class="row-{{ r.status }}">
+        <td>
+          {% if r.status == 'ok' %}<span class="badge badge-ok">OK</span>
+          {% elif r.status == 'error' %}<span class="badge badge-err">ERROR</span>
+          {% else %}<span class="badge badge-skip">SKIP</span>{% endif %}
+        </td>
+        <td><code>{{ r.kind }}</code> {{ r.name }}</td>
+        <td>{{ r.action }}</td>
+        <td>{{ r.message }}</td>
+      </tr>
+    {% endfor %}
+    </tbody>
+  </table>
+</section>
+
+<div class="actions">
+  <a class="button" href="{{ url_for('index') }}">← Back</a>
+  <a class="button" href="{{ url_for('status_manifest', name=name) }}">Status</a>
+  <a class="button" href="{{ url_for('history') }}">History</a>
+  <a class="button primary" href="{{ url_for('plan_manifest', name=name) }}">Re-plan (verify idempotency)</a>
+</div>
+{% endblock %}

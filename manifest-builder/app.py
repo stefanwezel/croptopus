@@ -11,6 +11,7 @@ from __future__ import annotations
 
 import io
 import re
+import hashlib
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
@@ -23,17 +24,28 @@ from flask import (
     render_template,
     request,
     send_file,
+    session,
     url_for,
 )
 
 import manifest as M
 
+# The applier package is the executable infrastructure layer. The routes below
+# stay thin: they load a manifest, call into applier/, and render the result.
+from applier import build_appliers, plan as plan_mod, apply as apply_mod
+from applier import state as state_mod, config as config_mod, apply_log
+from applier.errors import ApplierError
+from applier.model import Plan, Action
+
 app = Flask(__name__)
-app.secret_key = "dev-only-not-for-prod"  # flashes only; replace if exposing
+app.secret_key = "dev-only-not-for-prod"  # flashes + plan session; replace if exposing
 
 EXAMPLE_PATH = Path(__file__).parent / "examples" / "example_manifest.yaml"
 SAVED_DIR = Path(__file__).parent / "saved"
 SAVED_DIR.mkdir(exist_ok=True)
+
+INSTANCE_DIR = Path(__file__).parent / "instance"
+APP_CONFIG = config_mod.from_env(str(INSTANCE_DIR))
 
 
 # --- Working-manifest storage ----------------------------------------------
@@ -247,6 +259,99 @@ def delete_saved(name: str):
 def raw_yaml():
     """Plain-text view of the current manifest as YAML — handy for debugging."""
     return (M.dump_yaml(get_working()), 200, {"Content-Type": "text/plain; charset=utf-8"})
+
+
+# --- Executable manifest: Plan / Apply / Status / History -------------------
+# These turn a *saved* manifest into infrastructure. All the "do things"
+# logic lives in the applier package; the routes only load, dispatch, render.
+
+def _load_saved_manifest(name: str) -> tuple[dict[str, Any], str]:
+    """Load a saved manifest by name and return (manifest, content_hash)."""
+    p = _saved_path(name)
+    if not p.exists():
+        abort(404)
+    manifest = M.load_yaml(p.read_text(encoding="utf-8"))
+    mhash = hashlib.sha256(M.dump_yaml(manifest).encode()).hexdigest()[:16]
+    return manifest, mhash
+
+
+def _build_plan(name: str) -> Plan:
+    """Read live state and compute a fresh Plan. Pure (no writes)."""
+    manifest, mhash = _load_saved_manifest(name)
+    schema_app, dash_app = build_appliers(APP_CONFIG, manifest)
+    live = state_mod.read_live_state(manifest, schema_app, dash_app)
+    return plan_mod.diff(manifest, live, name, mhash)
+
+
+@app.get("/plan/<name>")
+def plan_manifest(name: str):
+    if not APP_CONFIG.configured:
+        flash("Applier not configured — set TIMESCALE_ADMIN_URL / GRAFANA_* env vars.", "err")
+        return redirect(url_for("index"))
+    try:
+        the_plan = _build_plan(name)
+    except ApplierError as e:
+        flash(f"Could not read live state: {e}", "err")
+        return redirect(url_for("index"))
+    # stash the exact plan so Apply enacts what the user saw (never recomputes)
+    plans = session.get("plans", {})
+    plans[name] = the_plan.to_dict()
+    session["plans"] = plans
+    return render_template("plan.html", name=name, plan=the_plan, Action=Action)
+
+
+@app.post("/apply/<name>")
+def apply_manifest(name: str):
+    manifest, mhash = _load_saved_manifest(name)
+    stored = (session.get("plans") or {}).get(name)
+    if not stored:
+        flash("No plan to apply — run Plan first.", "err")
+        return redirect(url_for("plan_manifest", name=name))
+
+    the_plan = Plan.from_dict(stored)
+    submitted_hash = request.form.get("plan_hash", "")
+    # refuse a stale plan: manifest changed, or the form doesn't match the stash
+    if submitted_hash != the_plan.plan_hash or mhash != the_plan.manifest_hash:
+        flash("Plan is stale (manifest changed since planning) — re-run Plan.", "err")
+        return redirect(url_for("plan_manifest", name=name))
+
+    schema_app, dash_app = build_appliers(APP_CONFIG, manifest)
+    result = apply_mod.apply_plan(the_plan, schema_app, dash_app)
+
+    apply_log.record(
+        APP_CONFIG.apply_log_db,
+        manifest_id=name,
+        manifest_hash=the_plan.manifest_hash,
+        customer_id=the_plan.customer_id,
+        project_id=the_plan.project_id,
+        plan_summary=the_plan.summary(),
+        results=[r.to_dict() for r in result.results],
+        success=result.success,
+    )
+    # consume the plan so it can't be re-applied stale
+    plans = session.get("plans", {})
+    plans.pop(name, None)
+    session["plans"] = plans
+    return render_template("apply_result.html", name=name, result=result)
+
+
+@app.get("/status/<name>")
+def status_manifest(name: str):
+    if not APP_CONFIG.configured:
+        flash("Applier not configured — set TIMESCALE_ADMIN_URL / GRAFANA_* env vars.", "err")
+        return redirect(url_for("index"))
+    try:
+        the_plan = _build_plan(name)
+    except ApplierError as e:
+        flash(f"Could not read live state: {e}", "err")
+        return redirect(url_for("index"))
+    return render_template("status.html", name=name, plan=the_plan, Action=Action)
+
+
+@app.get("/history")
+def history():
+    entries = apply_log.list_entries(APP_CONFIG.apply_log_db)
+    return render_template("history.html", entries=entries)
 
 
 # --- Future seam ------------------------------------------------------------

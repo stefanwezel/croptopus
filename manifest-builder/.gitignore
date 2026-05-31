@@ -1,0 +1,5 @@
+# applier runtime state — never commit secrets or the audit DB
+instance/
+__pycache__/
+*.pyc
+.pytest_cache/

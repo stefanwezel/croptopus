@@ -215,3 +215,82 @@ code {
   align-items: flex-end;
 }
 .save-row label { flex: 0 1 320px; }
+
+/* --- plan / apply / status -------------------------------------------- */
+.diff-table {
+  width: 100%;
+  border-collapse: collapse;
+  margin-top: 8px;
+}
+.diff-table th, .diff-table td {
+  text-align: left;
+  padding: 8px 10px;
+  border-bottom: 1px solid var(--line);
+  font-size: 13px;
+  vertical-align: top;
+}
+.diff-table th { font-weight: 600; color: var(--muted); background: #fafaf8; }
+.diff-table tr.row-no_change { color: var(--muted); }
+
+.sql {
+  background: #f6f6f2;
+  border: 1px solid var(--line);
+  border-radius: 4px;
+  padding: 8px 10px;
+  margin: 6px 0 0;
+  font: 12px/1.4 ui-monospace, Menlo, monospace;
+  white-space: pre-wrap;
+  color: #333;
+}
+
+.badge {
+  display: inline-block;
+  font-size: 11px;
+  font-weight: 600;
+  padding: 2px 7px;
+  border-radius: 4px;
+  white-space: nowrap;
+}
+.badge-create, .badge-warn { background: #fdf1d8; color: var(--warn); }
+.badge-update { background: #e2eefb; color: #1c4f8a; }
+.badge-no_change, .badge-ok { background: var(--ok-bg); color: var(--ok-ink); }
+.badge-orphan, .badge-err { background: var(--err-bg); color: var(--err-ink); }
+.badge-skip { background: #ececea; color: var(--muted); }
+
+.warning-bar {
+  background: var(--err-bg);
+  color: var(--err-ink);
+  border: 1px solid #f0c2bc;
+  border-radius: 6px;
+  padding: 10px 12px;
+  margin: 12px 0;
+}
+.warning-bar.warning-soft { background: #fdf1d8; color: var(--warn); border-color: #ecd29a; }
+.warnings { list-style: none; padding: 0; margin: 12px 0; }
+.warnings li { color: var(--warn); padding: 4px 0; }
+.inline-warn { color: var(--warn); font-size: 12px; margin-top: 4px; }
+
+.result-bar { border-radius: 6px; padding: 10px 14px; margin: 12px 0; font-weight: 600; }
+.result-ok { background: var(--ok-bg); color: var(--ok-ink); }
+.result-err { background: var(--err-bg); color: var(--err-ink); }
+
+.summary { font-family: ui-monospace, monospace; color: var(--accent); }
+.row-actions .button { padding: 4px 10px; font-size: 12px; }
+details summary { cursor: pointer; }
+
+/* --- confirm modal --------------------------------------------------- */
+.modal {
+  display: none;
+  position: fixed;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.45);
+  align-items: center;
+  justify-content: center;
+  z-index: 100;
+}
+.modal.open { display: flex; }
+.modal-box {
+  max-width: 480px;
+  width: 90%;
+  margin: 0;
+}

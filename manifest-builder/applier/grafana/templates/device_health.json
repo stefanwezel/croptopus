@@ -1,0 +1,27 @@
+{
+  "uid": "__UID__",
+  "title": "__TITLE__",
+  "tags": ["croptopus", "health"],
+  "timezone": "browser",
+  "schemaVersion": 39,
+  "refresh": "5m",
+  "panels": [
+    {
+      "id": 1,
+      "type": "table",
+      "title": "Device link quality",
+      "datasource": { "type": "postgres", "uid": "__DS_UID__" },
+      "gridPos": { "h": 8, "w": 24, "x": 0, "y": 0 },
+      "options": { "showHeader": true },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": { "type": "postgres", "uid": "__DS_UID__" },
+          "format": "table",
+          "rawQuery": true,
+          "rawSql": "SELECT device_id, first_seen, last_seen, last_rssi, last_snr FROM __SCHEMA__.devices ORDER BY last_seen DESC"
+        }
+      ]
+    }
+  ]
+}
