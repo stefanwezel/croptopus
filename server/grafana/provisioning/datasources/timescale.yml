@@ -1,0 +1,21 @@
+# Provisions the TimescaleDB (Postgres) datasource.
+# UID is fixed so dashboard JSON can reference it stably across rebuilds.
+apiVersion: 1
+
+datasources:
+  - name: Timescale
+    uid: timescale-main
+    type: postgres
+    access: proxy
+    # Service-name DNS on the compose network.
+    url: timescaledb:5432
+    user: ${POSTGRES_USER}
+    jsonData:
+      database: ${POSTGRES_DB}
+      sslmode: disable
+      postgresVersion: 1600
+      timescaledb: true
+    secureJsonData:
+      password: ${POSTGRES_PASSWORD}
+    isDefault: true
+    editable: true

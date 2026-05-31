@@ -1,0 +1,13 @@
+# Secrets — only .env.example is committed
+.env
+
+# Local data volumes (if anyone bind-mounts instead of using named volumes)
+data/
+db/data/
+grafana/data/
+
+# Python
+__pycache__/
+*.pyc
+.venv/
+.pytest_cache/

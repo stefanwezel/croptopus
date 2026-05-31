@@ -1,0 +1,79 @@
+# Croptopus server stack: TimescaleDB + ingester + Grafana.
+#
+# No reverse proxy / TLS here — on the VPS, Coolify (Traefik + Let's Encrypt)
+# terminates TLS and routes to these services over its internal network. See
+# README.md "Deploy on Coolify".
+#
+# Localhost-only port bindings (127.0.0.1:...) are for LOCAL dev convenience only;
+# they are not how users reach the services on Coolify.
+
+services:
+  timescaledb:
+    image: timescale/timescaledb:latest-pg16
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: ${POSTGRES_DB}
+      POSTGRES_USER: ${POSTGRES_USER}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+    volumes:
+      - timescale_data:/var/lib/postgresql/data
+      # Runs *.sql in here once, on first start against an empty data volume.
+      - ./db/init:/docker-entrypoint-initdb.d:ro
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER} -d ${POSTGRES_DB}"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 20s
+    # No public port toggle on Coolify — keep the DB private. Bound to localhost
+    # for local psql access only.
+    ports:
+      - "127.0.0.1:5432:5432"
+
+  ingester:
+    build: ./ingester
+    restart: unless-stopped
+    depends_on:
+      timescaledb:
+        condition: service_healthy
+    environment:
+      # Reaches the DB by compose service-name DNS ("timescaledb").
+      DATABASE_URL: ${DATABASE_URL}
+      INGEST_TOKEN: ${INGEST_TOKEN}
+    extra_hosts:
+      # Harmless mirror of the project's pattern; only matters if someone later
+      # points DATABASE_URL at a DB running on the host rather than this stack.
+      - "host.docker.internal:host-gateway"
+    healthcheck:
+      test: ["CMD-SHELL", "python -c \"import urllib.request,sys; sys.exit(0 if urllib.request.urlopen('http://127.0.0.1:8000/healthz').status==200 else 1)\""]
+      interval: 15s
+      timeout: 5s
+      retries: 5
+      start_period: 15s
+    # On Coolify: mark THIS service Public so the BBB can POST to it over HTTPS.
+    ports:
+      - "127.0.0.1:8000:8000"
+
+  grafana:
+    image: grafana/grafana:latest
+    restart: unless-stopped
+    depends_on:
+      - timescaledb
+    environment:
+      GF_SECURITY_ADMIN_USER: ${GF_SECURITY_ADMIN_USER}
+      GF_SECURITY_ADMIN_PASSWORD: ${GF_SECURITY_ADMIN_PASSWORD}
+      GF_PATHS_PROVISIONING: /etc/grafana/provisioning
+      # Datasource reads the same DB creds via env (see datasources/timescale.yml).
+      POSTGRES_DB: ${POSTGRES_DB}
+      POSTGRES_USER: ${POSTGRES_USER}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+    volumes:
+      - grafana_data:/var/lib/grafana
+      - ./grafana/provisioning:/etc/grafana/provisioning:ro
+    # On Coolify: optionally mark Public, or keep private and tunnel.
+    ports:
+      - "127.0.0.1:3000:3000"
+
+volumes:
+  timescale_data:
+  grafana_data:
