@@ -25,10 +25,13 @@ services:
       timeout: 5s
       retries: 5
       start_period: 20s
-    # No public port toggle on Coolify — keep the DB private. Bound to localhost
-    # for local psql access only.
-    ports:
-      - "127.0.0.1:5432:5432"
+    # Keep the DB PRIVATE: only expose the port on the internal compose network,
+    # never publish it to the host. (Coolify ignores a "127.0.0.1:" prefix and
+    # publishes on 0.0.0.0, so host-publishing here would put Postgres on the
+    # public internet.) Other services reach it via service-name DNS,
+    # timescaledb:5432. For local psql access, see docker-compose.override.yml.
+    expose:
+      - "5432"
 
   ingester:
     build: ./ingester
@@ -50,9 +53,11 @@ services:
       timeout: 5s
       retries: 5
       start_period: 15s
-    # On Coolify: mark THIS service Public so the BBB can POST to it over HTTPS.
-    ports:
-      - "127.0.0.1:8000:8000"
+    # On Coolify: set a domain on THIS service so Traefik routes the BBB's POSTs
+    # to container port 8000 over HTTPS. Don't host-publish 8000 — Coolify's own
+    # dashboard already uses host port 8000, which is what made the deploy fail.
+    expose:
+      - "8000"
 
   grafana:
     image: grafana/grafana:latest
@@ -70,9 +75,11 @@ services:
     volumes:
       - grafana_data:/var/lib/grafana
       - ./grafana/provisioning:/etc/grafana/provisioning:ro
-    # On Coolify: optionally mark Public, or keep private and tunnel.
-    ports:
-      - "127.0.0.1:3000:3000"
+    # On Coolify: set a domain to expose the UI via Traefik (or leave it without
+    # a domain to keep it private and reach it through a tunnel). Routes to
+    # container port 3000.
+    expose:
+      - "3000"
 
 volumes:
   timescale_data:

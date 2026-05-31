@@ -1,0 +1,21 @@
+# LOCAL DEV ONLY — host port publishing for `docker compose up`.
+#
+# Docker Compose auto-merges this file when you run `docker compose` with no
+# explicit `-f`. Coolify deploys with `-f docker-compose.yml` (no override),
+# so on the VPS these host bindings are ignored and services are reached via
+# Traefik domains instead — keeping the DB private and avoiding host-port
+# clashes (e.g. Coolify's own port 8000).
+#
+# Change the LEFT side of any mapping if a port is taken on your machine.
+services:
+  timescaledb:
+    ports:
+      - "127.0.0.1:5432:5432"   # local psql: psql -h 127.0.0.1 -p 5432
+
+  ingester:
+    ports:
+      - "127.0.0.1:8000:8000"   # curl http://127.0.0.1:8000/healthz
+
+  grafana:
+    ports:
+      - "127.0.0.1:3000:3000"   # http://127.0.0.1:3000
