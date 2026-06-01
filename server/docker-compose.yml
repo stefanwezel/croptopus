@@ -9,15 +9,15 @@
 
 services:
   timescaledb:
-    image: timescale/timescaledb:latest-pg16
+    # Custom image bakes db/init/*.sql into /docker-entrypoint-initdb.d (see
+    # db/Dockerfile) — Coolify doesn't reliably bind-mount the repo at runtime.
+    build: ./db
     environment:
       POSTGRES_DB: ${POSTGRES_DB}
       POSTGRES_USER: ${POSTGRES_USER}
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
     volumes:
       - timescale_data:/var/lib/postgresql/data
-      # Runs *.sql in here once, on first start against an empty data volume.
-      - ./db/init:/docker-entrypoint-initdb.d:ro
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER} -d ${POSTGRES_DB}"]
       interval: 10s
@@ -58,7 +58,9 @@ services:
       - "8000"
 
   grafana:
-    image: grafana/grafana:latest
+    # Custom image bakes grafana/provisioning into the image (see
+    # grafana/Dockerfile) — Coolify doesn't reliably bind-mount the repo at runtime.
+    build: ./grafana
     depends_on:
       - timescaledb
     environment:
@@ -71,7 +73,6 @@ services:
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
     volumes:
       - grafana_data:/var/lib/grafana
-      - ./grafana/provisioning:/etc/grafana/provisioning:ro
     # On Coolify: set a domain to expose the UI via Traefik (or leave it without
     # a domain to keep it private and reach it through a tunnel). Routes to
     # container port 3000.
