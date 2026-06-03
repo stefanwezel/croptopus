@@ -1,0 +1,18 @@
+[project]
+name = "croptopus-bbb-listener"
+version = "0.1.0"
+description = "BeagleBone LoRa listener + durable SQLite-backed forwarder for the Croptopus sensor network"
+requires-python = ">=3.9"
+# The receive + decode path and the forwarder/outbox use only the standard
+# library. python-dotenv is the single third-party dependency, used to load
+# bbb-listener/.env; it is imported optionally, so the listener still runs if it
+# isn't installed (env vars can be exported the usual way).
+dependencies = [
+    "python-dotenv>=1.0",
+]
+
+[project.scripts]
+lora-listener = "lora_listener:main"
+
+[tool.setuptools]
+py-modules = ["lora_listener", "forwarder"]

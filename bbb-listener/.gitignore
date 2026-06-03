@@ -1,0 +1,7 @@
+# Local secrets / config — never commit
+.env
+
+# Local SQLite outbox (and WAL/SHM sidecars) if the queue path lands in-tree
+*.sqlite3
+*.sqlite3-wal
+*.sqlite3-shm
