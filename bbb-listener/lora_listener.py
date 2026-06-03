@@ -7,17 +7,17 @@ Decodes our XIAO sensor stations' 7-byte payload format and prints one
 human-readable line per uplink, plus RF metadata (RSSI, SNR, frequency).
 
 Wire format expected (matches xiao_lora_sensor.ino):
-    [0..1] uint16  short station ID, big-endian  (MAC-derived FNV-1a-16,
+    [0..1] uint16  station ID, big-endian  (MAC-derived FNV-1a-16,
                                                   or pinned via --force-id
                                                   at flash time)
     [2..3] int16   temperature × 100, big-endian (0x8000 = sentinel "NaN")
     [4..5] uint16  humidity × 100,    big-endian (0xFFFF = sentinel "NaN")
     [6]    uint8   soil moisture %                (0..100)
 
-The short ID is a 16-bit hash of the chip's factory MAC, so it's stable per
+The station ID is a 16-bit hash of the chip's factory MAC, so it's stable per
 device but tells you nothing on its own about which physical station it
 belongs to. Cross-reference against stations.csv (written by
-flash_xiao_station.sh) to map a short ID back to a labelled device.
+flash_xiao_station.sh) to map a station ID back to a labelled device.
 
 Anything that isn't 7 bytes is printed as hex with metadata so unknown
 traffic is still visible (other LoRa devices in the area, stations still
@@ -67,7 +67,7 @@ PULL_RESP = 0x03
 PULL_ACK  = 0x04
 
 # Expected sensor payload size (in bytes)
-SENSOR_PAYLOAD_LEN = 7
+SENSOR_PAYLOAD_LEN = 6
 
 # ============================================================================
 
@@ -82,13 +82,13 @@ _worker: "forwarder.ForwarderWorker | None" = None
 _gateway_id_override = ""
 
 
-def format_device_id(short_id: int) -> str:
-    """Map a numeric station short ID to the dashboards' "node_<4-hex>" key.
+def format_device_id(station_id: int) -> str:
+    """Map a numeric station station ID to the dashboards' "node_<4-hex>" key.
 
-    Station short ID 0x0001 -> "node_0001", 0x4F2A -> "node_4f2a". Accepts a wider
-    int unchanged, so the future MAC-derived 2-byte short ID needs no further work.
+    Station station ID 0x0001 -> "node_0001", 0x4F2A -> "node_4f2a". Accepts a wider
+    int unchanged, so the future MAC-derived 2-byte station ID needs no further work.
     """
-    return f"node_{short_id:04x}"
+    return f"node_{station_id:04x}"
 
 
 def rxpk_timestamp(rxpk: dict) -> str:
@@ -114,7 +114,7 @@ def build_payload(decoded: dict, rxpk: dict, gateway_id: str) -> dict:
     Shape matches server/ingester/app/models.py exactly. A failed sensor read is
     carried as None here and serialized to JSON null by the outbox."""
     return {
-        "device_id": format_device_id(decoded["short_id"]),
+        "device_id": format_device_id(decoded["station_id"]),
         "timestamp": rxpk_timestamp(rxpk),
         "readings": [
             {"sensor_type": "temperature",   "value": decoded["temperature"],   "unit": "C"},
@@ -136,11 +136,11 @@ def decode_sensor_payload(data: bytes):
     if len(data) != SENSOR_PAYLOAD_LEN:
         return None
 
-    short_id, t_raw, h_raw, soil = struct.unpack(">HhHB", data)
+    station_id, t_raw, h_raw, soil = struct.unpack(">BhHB", data)
     temperature = None if t_raw == -32768 else t_raw / 100.0
     humidity    = None if h_raw == 0xFFFF else h_raw / 100.0
     return {
-        "short_id": short_id,
+        "station_id": station_id,
         "temperature": temperature,
         "humidity": humidity,
         "soil_moisture": soil,
@@ -179,7 +179,7 @@ def handle_rxpk(rxpk: dict, gateway_id: str = "unknown"):
             "[%s] station 0x%04X  T=%s°C  RH=%s%%  soil=%3d%%   "
             "(%s MHz, RSSI %s dBm, SNR %s dB, %s)",
             ts,
-            decoded["short_id"],
+            decoded["station_id"],
             format_value(decoded["temperature"], "{:5.2f}"),
             format_value(decoded["humidity"],    "{:5.2f}"),
             decoded["soil_moisture"],
