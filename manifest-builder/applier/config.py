@@ -2,8 +2,8 @@
 
 The manifest NEVER holds credentials. The Flask app builds an AppConfig at
 startup and hands it to the applier factory. For v1 a single shared admin
-connection is fine (superuser creates schemas; Grafana admin creates orgs and
-per-org service accounts).
+connection is fine (superuser creates schemas; Grafana admin creates folders
+and dashboards in org 1).
 
 Each setting reads its own applier-specific variable first, then falls back to
 the name the Croptopus *server* stack already uses (`DATABASE_URL`,
@@ -35,10 +35,6 @@ class AppConfig:
     grafana_admin_password: str
     project_database_url_template: str
     instance_dir: str
-
-    @property
-    def secrets_dir(self):
-        return os.path.join(self.instance_dir, "secrets")
 
     @property
     def apply_log_db(self):

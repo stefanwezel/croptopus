@@ -129,39 +129,37 @@ def _grafana_changes(manifest, live, warnings):
     g = manifest.get("grafana") or {}
     project_id = (manifest.get("project") or {}).get("id", "")
     schema = (manifest.get("database") or {}).get("schema")
-    org_name = state_mod.manifest_org_name(manifest)
+    folder_name = state_mod.manifest_folder(manifest)
     ds_name = state_mod.manifest_datasource_name(manifest)
     gs = live.grafana
     changes = []
 
-    # org
-    if gs.org_exists:
+    # per-project folder in the shared org
+    if gs.folder_exists:
         changes.append(ResourceChange(
-            "grafana", "org", org_name, Action.NO_CHANGE.value,
-            detail=f"org '{org_name}' already exists (id {gs.org_id})",
+            "grafana", "folder", folder_name, Action.NO_CHANGE.value,
+            detail=f"folder '{folder_name}' already exists",
         ))
     else:
         changes.append(ResourceChange(
-            "grafana", "org", org_name, Action.CREATE.value,
-            detail=f"create Grafana organisation '{org_name}'",
-            op="ensure_org", params={"org_name": org_name},
+            "grafana", "folder", folder_name, Action.CREATE.value,
+            detail=f"create Grafana folder '{folder_name}'",
+            op="ensure_folder", params={"folder_name": folder_name},
         ))
 
-    # datasource
-    if gs.datasource.exists and gs.datasource.schema == schema:
+    # shared datasource: reused if present (normally the server-provisioned
+    # 'Timescale'); only created when missing, never modified
+    if gs.datasource.exists:
         changes.append(ResourceChange(
             "grafana", "datasource", ds_name, Action.NO_CHANGE.value,
-            detail=f"datasource '{ds_name}' scoped to {schema}",
+            detail=f"datasource '{ds_name}' present (uid {gs.datasource.uid})",
         ))
     else:
-        action = Action.UPDATE if gs.datasource.exists else Action.CREATE
-        detail = f"provision TimescaleDB datasource '{ds_name}' scoped to schema {schema}"
-        if gs.datasource.exists and gs.datasource.schema != schema:
-            detail += f" (was scoped to {gs.datasource.schema})"
         changes.append(ResourceChange(
-            "grafana", "datasource", ds_name, action.value, detail=detail,
+            "grafana", "datasource", ds_name, Action.CREATE.value,
+            detail=f"create shared TimescaleDB datasource '{ds_name}'",
             op="ensure_datasource",
-            params={"org_name": org_name, "datasource_name": ds_name, "schema": schema},
+            params={"datasource_name": ds_name},
         ))
 
     # dashboards
@@ -190,9 +188,9 @@ def _grafana_changes(manifest, live, warnings):
 
         referenced_uids.add(uid)
         params = {
-            "org_name": org_name, "uid": uid, "dashboard_id": did,
+            "uid": uid, "dashboard_id": did,
             "project_id": project_id, "schema": schema,
-            "datasource_uid": ds_uid_live, "folder": g.get("folder"),
+            "datasource_uid": ds_uid_live, "folder": folder_name,
         }
         live_dash = gs.dashboards.get(uid)
         if live_dash is None:
@@ -215,7 +213,8 @@ def _grafana_changes(manifest, live, warnings):
                     op="ensure_dashboard", params=params,
                 ))
 
-    # orphan dashboards: live croptopus dashboards the manifest no longer covers
+    # orphan dashboards: live croptopus dashboards in the project's folder
+    # that the manifest no longer covers
     for uid, title in (gs.all_dashboards or {}).items():
         if uid not in referenced_uids:
             changes.append(ResourceChange(
@@ -242,7 +241,7 @@ def diff(manifest, live, manifest_id, manifest_hash):
         customer_id=(manifest.get("customer") or {}).get("id", ""),
         project_id=(manifest.get("project") or {}).get("id", ""),
         schema=(manifest.get("database") or {}).get("schema", ""),
-        org_name=state_mod.manifest_org_name(manifest),
+        folder_name=state_mod.manifest_folder(manifest),
         changes=changes,
         warnings=warnings,
         stubs=["nodes / sensors (firmware loop is separate)",

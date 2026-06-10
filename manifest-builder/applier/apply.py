@@ -69,22 +69,18 @@ def _execute(change, schema_applier, dashboard_applier, created_ds_uid):
     if op == "set_compression_policy":
         return schema_applier.set_compression_policy(p["schema"], p["days"]), created_ds_uid
 
-    if op == "ensure_org":
-        org_id = dashboard_applier.ensure_org(p["org_name"])
-        return f"org ensured (id {org_id})", created_ds_uid
+    if op == "ensure_folder":
+        uid = dashboard_applier.ensure_folder(p["folder_name"])
+        return f"folder ensured (uid {uid or 'General'})", created_ds_uid
     if op == "ensure_datasource":
-        uid = dashboard_applier.ensure_datasource(
-            p["org_name"], p["datasource_name"], p["schema"],
-        )
+        uid = dashboard_applier.ensure_datasource(p["datasource_name"])
         return f"datasource ensured (uid {uid})", uid
     if op == "ensure_dashboard":
         ds_uid = created_ds_uid or p.get("datasource_uid")
         if not ds_uid:
             raise RuntimeError("no datasource uid available for dashboard")
         body = lib.render(p["dashboard_id"], p["project_id"], ds_uid, p["schema"])
-        msg = dashboard_applier.ensure_dashboard(
-            p["org_name"], p["uid"], body, p.get("folder"),
-        )
+        msg = dashboard_applier.ensure_dashboard(p["uid"], body, p.get("folder"))
         return msg, created_ds_uid
 
     raise RuntimeError(f"unknown op: {op!r}")

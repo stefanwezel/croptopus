@@ -13,7 +13,7 @@
 
 <section class="card">
   <h1>Status · <code>{{ name }}</code></h1>
-  <p class="muted">Org <strong>{{ plan.org_name }}</strong> — schema <code>{{ plan.schema }}</code></p>
+  <p class="muted">Folder <strong>{{ plan.folder_name }}</strong> — schema <code>{{ plan.schema }}</code></p>
 
   {% set drift = plan.changes | selectattr('action', 'in', ['CREATE', 'UPDATE', 'ORPHAN']) | list %}
   {% if drift %}

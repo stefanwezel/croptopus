@@ -7,9 +7,9 @@ for a LoRa sensor network — with two jobs:
    sensor stations (with their sensors and sampling config), database, Grafana
    dashboards, and alerts; export/import clean YAML; round-trip losslessly.
 2. **Apply** the manifest. Turn a saved manifest into real infrastructure: a
-   per-project TimescaleDB schema and a per-project Grafana org with its
-   datasource and dashboards. Plan first, review the diff, then apply — with an
-   append-only audit log of every apply.
+   per-project TimescaleDB schema and a per-project Grafana folder (in the
+   shared org) with its dashboards. Plan first, review the diff, then apply —
+   with an append-only audit log of every apply.
 
 The manifest itself never holds credentials. Infra targets and admin secrets
 come from the environment (see [Configuration](#configuration)).
@@ -71,9 +71,12 @@ Everything that mutates infra is idempotent and refuses destructive operations.
   a `devices` table, the two query indexes, and retention + compression
   policies from `database.retention_days` / `compression_after_days`. The shape
   mirrors `server/db/init/01_schema.sql` exactly.
-- **Grafana** (`applier/grafana/`): an org named `{customer.name} / {project.name}`,
-  a Postgres datasource (named from `grafana.datasource_name`, UID derived as
-  `ts-{project_id}`), and each enabled dashboard from `grafana.dashboards`.
+- **Grafana** (`applier/grafana/`): a folder in org 1 named from
+  `grafana.folder` (blank means the project name), and each enabled dashboard
+  from `grafana.dashboards` inside it. The Postgres datasource (named from
+  `grafana.datasource_name`, default `Timescale`) is **shared** across
+  projects: the one the server stack provisions is reused as-is, and it is
+  only created here when missing — never modified.
 
 **Dashboards** are a hand-written template library
 (`applier/grafana/templates/`). A manifest references them by id; available ids
@@ -88,9 +91,11 @@ Two isolation mechanisms, both keyed off the manifest:
 
 1. **Postgres schema per project** — each project's data lives in its own
    schema in the shared Timescale cluster.
-2. **Grafana org per project** — each project gets its own org, datasource, and
-   an org-scoped service-account token (created on first apply, stored in
-   `instance/secrets/{project_id}.json`, gitignored).
+2. **Grafana folder per project** — all projects share org 1 (where the server
+   stack provisions the `Timescale` datasource); each project owns a folder
+   and the dashboards in it. Dashboard uids are prefixed `{project_id}-` so
+   projects can't collide. All Grafana calls authenticate as the admin user
+   (`GF_SECURITY_ADMIN_*`) — no per-project tokens.
 
 ### Safety model
 
@@ -129,8 +134,8 @@ applier names still win when set (e.g. to point at a separate admin role).
 schemas. Plan/Apply/Status stay disabled (with a flash explaining why) until the
 admin URL, Grafana URL, and Grafana admin password all resolve. Reaching the
 **private** TimescaleDB requires running inside the stack's network (so
-`timescaledb:5432` / `grafana:3000` resolve). Runtime state — secrets and the
-audit DB — lives under `instance/` (gitignored).
+`timescaledb:5432` / `grafana:3000` resolve). Runtime state — the apply audit
+DB — lives under `instance/` (gitignored).
 
 ## Deploy on Coolify
 
@@ -147,8 +152,8 @@ stack's network. The included `Dockerfile` serves the app with gunicorn on port
 3. **Keep it private**: it has **no authentication** (single-user tool). Do not
    give it a public domain; reach it via Coolify private networking or an SSH
    tunnel.
-4. **Persistent storage**: mount a volume at **`/app/instance`** so the Grafana
-   service-account tokens and the apply audit DB survive redeploys.
+4. **Persistent storage**: mount a volume at **`/app/instance`** so the apply
+   audit DB survives redeploys.
 5. **Environment** — reuse the stack's values via Coolify shared variables; the
    names line up thanks to the fallbacks above:
 
@@ -217,12 +222,12 @@ manifest-builder/
 │   ├── model.py  interfaces.py  errors.py
 │   ├── apply_log.py                # append-only SQLite audit log
 │   ├── timescale/schema_applier.py # per-project Postgres schema + policies
-│   └── grafana/                    # org/token mgmt, datasource + dashboards
-│       ├── org_applier.py  dashboard_applier.py  dashboard_library.py
+│   └── grafana/                    # folder, shared datasource + dashboards (org 1)
+│       ├── dashboard_applier.py  dashboard_library.py
 │       └── templates/              # overview / per_station / device_health JSON
 ├── examples/example_manifest.yaml  # starter manifest (matches the running stack)
 ├── saved/                          # persisted named manifests
-├── instance/                       # runtime state: secrets/, apply_log.db (gitignored)
+├── instance/                       # runtime state: apply_log.db (gitignored)
 ├── static/style.css
 └── templates/                      # base, index, editor, plan, status, apply_result, history
 ```

@@ -2,8 +2,8 @@
 
 All "do things to infrastructure" calls funnel through these two abstract
 bases. The concrete Timescale / Grafana implementations are pluggable, so the
-"shared Grafana with orgs" model can later be swapped for "one Grafana per
-project" without touching the routes, plan.py or apply.py.
+"shared Grafana org with a folder per project" model can later be swapped for
+"one Grafana per project" without touching the routes, plan.py or apply.py.
 
 Read methods (``read_*``) are used by state.py and must never mutate.
 Write methods are used by apply.py and MUST be idempotent.
@@ -35,7 +35,6 @@ class DatasourceState:
     uid: Optional[str] = None
     name: Optional[str] = None
     database: Optional[str] = None
-    schema: Optional[str] = None      # the project schema the datasource is scoped to
 
 
 @dataclass
@@ -47,15 +46,15 @@ class DashboardState:
 
 @dataclass
 class GrafanaState:
-    """Snapshot of what exists in Grafana for one project org."""
+    """Snapshot of what exists in Grafana (org 1) for one project."""
 
-    org_exists: bool = False
-    org_id: Optional[int] = None
+    folder_exists: bool = False
+    folder_uid: Optional[str] = None
     datasource: DatasourceState = field(default_factory=DatasourceState)
     # uid -> DashboardState (only the manifest-referenced uids that exist live)
     dashboards: dict = field(default_factory=dict)
-    # every croptopus-tagged dashboard live in the org (uid -> title); used to
-    # surface ORPHANs that the manifest no longer references
+    # every croptopus-tagged dashboard live in the project's folder
+    # (uid -> title); used to surface ORPHANs the manifest no longer references
     all_dashboards: dict = field(default_factory=dict)
 
 
@@ -94,38 +93,39 @@ class SchemaApplier(ABC):
 
 
 class DashboardApplier(ABC):
-    """Owns the per-project Grafana org, datasource and dashboards
-    (multi-tenancy mechanism #2)."""
+    """Owns the per-project Grafana folder and dashboards in the shared org
+    (multi-tenancy mechanism #2), plus the shared TimescaleDB datasource."""
 
     # ---- read path (state.py) ----
     @abstractmethod
-    def read_state(self, org_name: str, datasource_name: str,
+    def read_state(self, folder_name: str, datasource_name: str,
                    dashboard_uids: list) -> GrafanaState:
         ...
 
     # ---- write path (apply.py); all idempotent ----
     @abstractmethod
-    def ensure_org(self, org_name: str) -> int:
-        """Create or find the org. Returns its org id."""
+    def ensure_folder(self, folder_name: str) -> str:
+        """Create or find the project's folder. Returns its uid (blank name
+        means the General folder, uid ``""``)."""
 
     @abstractmethod
-    def ensure_datasource(self, org_name: str, datasource_name: str,
-                          schema: str) -> str:
-        """Provision the TimescaleDB datasource inside the org, scoped to
-        ``schema``. Returns the datasource uid."""
+    def ensure_datasource(self, datasource_name: str) -> str:
+        """Find the shared TimescaleDB datasource by name (e.g. the one the
+        server stack provisions), creating it only if missing. Returns its
+        uid. Never modifies an existing datasource."""
 
     @abstractmethod
-    def ensure_dashboard(self, org_name: str, uid: str, dashboard_json: dict,
+    def ensure_dashboard(self, uid: str, dashboard_json: dict,
                          folder: str = None) -> str:
         """PUT a dashboard by uid (create-or-update) into ``folder`` (the
-        manifest's grafana.folder; blank means the General folder). Returns a
+        project's folder; blank means the General folder). Returns a
         message."""
 
     # ---- destructive (refused in v1) ----
     @abstractmethod
-    def delete_dashboard(self, org_name: str, uid: str):
+    def delete_dashboard(self, uid: str):
         """Must raise RefusedDestructive in v1."""
 
     @abstractmethod
-    def delete_datasource(self, org_name: str, uid: str):
+    def delete_datasource(self, uid: str):
         """Must raise RefusedDestructive in v1."""

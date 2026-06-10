@@ -4,7 +4,7 @@ These are intentionally framework-free (no Flask, no DB driver) so the whole
 applier package can be lifted out into a standalone ``projectctl`` later.
 """
 
-from dataclasses import dataclass, field, asdict
+from dataclasses import dataclass, field, fields, asdict
 from enum import Enum
 from typing import Any, Optional
 
@@ -28,7 +28,7 @@ class ResourceChange:
     """One row in a plan: what we intend to do to one resource."""
 
     section: str                       # "timescale" | "grafana"
-    kind: str                          # schema|table|retention_policy|compression_policy|org|datasource|dashboard
+    kind: str                          # schema|table|retention_policy|compression_policy|folder|datasource|dashboard
     name: str                          # human identity of the resource
     action: str                        # one of Action values
     detail: str = ""                   # human-readable description
@@ -55,7 +55,7 @@ class Plan:
     customer_id: str
     project_id: str
     schema: str
-    org_name: str
+    folder_name: str = ""
     changes: list = field(default_factory=list)   # list[ResourceChange]
     warnings: list = field(default_factory=list)   # list[str]
     stubs: list = field(default_factory=list)      # sections deferred ("coming soon")
@@ -88,7 +88,10 @@ class Plan:
 
     @classmethod
     def from_dict(cls, d):
-        d = dict(d)
+        # drop unknown keys so a session-stashed plan from an older schema
+        # (e.g. pre-rename org_name) degrades to "stale plan" instead of a 500
+        known = {f.name for f in fields(cls)}
+        d = {k: v for k, v in d.items() if k in known}
         d["changes"] = [ResourceChange.from_dict(c) for c in d.get("changes", [])]
         return cls(**d)
 

@@ -32,7 +32,7 @@
 <section class="card">
   <h1>Plan · <code>{{ name }}</code></h1>
   <p class="muted">
-    Org <strong>{{ plan.org_name }}</strong> — schema <code>{{ plan.schema }}</code><br>
+    Folder <strong>{{ plan.folder_name }}</strong> — schema <code>{{ plan.schema }}</code><br>
     Summary: {{ plan.summary() }}
   </p>
 
@@ -80,7 +80,7 @@
 <div id="confirm-modal" class="modal">
   <div class="modal-box card">
     <h2>Confirm apply</h2>
-    <p>You are about to apply to <strong>{{ plan.org_name }}</strong>:</p>
+    <p>You are about to apply to folder <strong>{{ plan.folder_name }}</strong>:</p>
     <p class="summary">{{ plan.summary() }}</p>
     {% if plan.has_destructive %}
     <div class="warning-bar">⚠ Destructive operations present — they will be refused.</div>

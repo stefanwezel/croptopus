@@ -57,7 +57,7 @@ database:
   compression_after_days: 30
 grafana:
   folder: Croptopus
-  datasource_name: croptopus_tsdb
+  datasource_name: Timescale
   dashboards:
   - id: overview
     enabled: true

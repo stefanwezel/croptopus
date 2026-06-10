@@ -21,20 +21,17 @@ def manifest_schema(manifest):
     return (manifest.get("database") or {}).get("schema")
 
 
-def manifest_org_name(manifest):
-    """Per-project Grafana org: '{customer.name} / {project.name}'
-    (multi-tenancy mechanism #2)."""
+def manifest_folder(manifest):
+    """Per-project Grafana folder in the shared org (multi-tenancy mechanism
+    #2). A blank grafana.folder falls back to the project name, so each
+    project lands in its own folder by default."""
     g = manifest.get("grafana") or {}
-    if g.get("org"):
-        return g["org"]
-    customer = (manifest.get("customer") or {}).get("name", "")
-    project = (manifest.get("project") or {}).get("name", "")
-    return f"{customer} / {project}"
+    return g.get("folder") or (manifest.get("project") or {}).get("name", "")
 
 
 def manifest_datasource_name(manifest):
     g = manifest.get("grafana") or {}
-    return g.get("datasource_name") or "croptopus_tsdb"
+    return g.get("datasource_name") or "Timescale"
 
 
 def enabled_dashboards(manifest):
@@ -59,7 +56,7 @@ def read_live_state(manifest, schema_applier, dashboard_applier):
         if has_tpl
     ]
     grafana_state = dashboard_applier.read_state(
-        manifest_org_name(manifest),
+        manifest_folder(manifest),
         manifest_datasource_name(manifest),
         uids,
     )

@@ -109,7 +109,7 @@
   <details open class="card">
     <summary><h2>Grafana</h2></summary>
     <div class="grid two">
-      <label>folder<input name="grafana[folder]" value="{{ m.grafana.folder or '' }}"></label>
+      <label>folder<input name="grafana[folder]" value="{{ m.grafana.folder or '' }}" placeholder="blank = project name"></label>
       <label>datasource_name<input name="grafana[datasource_name]" value="{{ m.grafana.datasource_name or '' }}"></label>
     </div>
     <h4>Dashboards</h4>

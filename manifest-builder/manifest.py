@@ -42,8 +42,12 @@ def empty_manifest() -> dict[str, Any]:
             "compression_after_days": 30,
         },
         "grafana": {
-            "folder": "Croptopus",
-            "datasource_name": "croptopus_tsdb",
+            # Per-project folder in shared Grafana org 1; blank means
+            # "use project.name", so each project gets its own folder.
+            "folder": "",
+            # Matches the datasource the server stack provisions
+            # (server/grafana/provisioning/datasources/timescale.yml).
+            "datasource_name": "Timescale",
             "dashboards": [],
         },
         "alerts": {},

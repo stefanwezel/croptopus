@@ -25,16 +25,11 @@ def build_appliers(cfg, manifest):
     the multi-tenancy model without touching routes, plan or apply.
     """
     from .timescale.schema_applier import TimescaleSchemaApplier
-    from .grafana.org_applier import GrafanaOrgManager
     from .grafana.dashboard_applier import GrafanaDashboardApplier
 
-    project_id = (manifest.get("project") or {}).get("id", "")
     schema_applier = TimescaleSchemaApplier(cfg.timescale_admin_url)
-    org_manager = GrafanaOrgManager(
-        cfg.grafana_url, cfg.grafana_admin_user, cfg.grafana_admin_password,
-        cfg.secrets_dir,
-    )
     dashboard_applier = GrafanaDashboardApplier(
-        org_manager, project_id, cfg.project_database_url_template,
+        cfg.grafana_url, cfg.grafana_admin_user, cfg.grafana_admin_password,
+        cfg.project_database_url_template,
     )
     return schema_applier, dashboard_applier

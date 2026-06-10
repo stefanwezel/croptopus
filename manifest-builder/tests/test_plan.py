@@ -21,7 +21,7 @@ DEMO = {
     "database": {"schema": "croptopus", "retention_days": 730, "compression_after_days": 30},
     "grafana": {
         "folder": "Croptopus",
-        "datasource_name": "croptopus_tsdb",
+        "datasource_name": "Timescale",
         "dashboards": [
             {"id": "overview", "enabled": True},
             {"id": "per_station", "enabled": True},
@@ -29,7 +29,8 @@ DEMO = {
     },
 }
 
-ORG = "Demo Farm / Croptopus Dev"
+FOLDER = "Croptopus"
+DS_UID = "timescale-main"
 PROJECT_ID = "croptopus_dev"
 SCHEMA = "croptopus"
 
@@ -50,7 +51,7 @@ def empty_live():
 
 
 def in_sync_live(manifest=DEMO):
-    ds_uid = "ts-" + PROJECT_ID
+    ds_uid = DS_UID
     schema = SchemaState(
         schema_exists=True, measurements_table_exists=True, is_hypertable=True,
         retention_interval="730 days",
@@ -66,9 +67,9 @@ def in_sync_live(manifest=DEMO):
         dashboards[uid] = DashboardState(uid=uid, exists=True, fingerprint=fp)
         all_dash[uid] = entry["id"]
     grafana = GrafanaState(
-        org_exists=True, org_id=2,
-        datasource=DatasourceState(exists=True, uid=ds_uid, name="croptopus_tsdb",
-                                   database="croptopus", schema=SCHEMA),
+        folder_exists=True, folder_uid="folder-Croptopus",
+        datasource=DatasourceState(exists=True, uid=ds_uid, name="Timescale",
+                                   database="croptopus"),
         dashboards=dashboards, all_dashboards=all_dash,
     )
     return state_mod.LiveState(schema=schema, grafana=grafana)
@@ -90,8 +91,8 @@ def test_empty_infra_all_create():
     assert _actions(plan, "retention_policy")["croptopus.measurements"] == Action.CREATE.value
     assert _actions(plan, "compression_policy")["croptopus.measurements"] == Action.CREATE.value
 
-    assert _actions(plan, "org")[ORG] == Action.CREATE.value
-    assert _actions(plan, "datasource")["croptopus_tsdb"] == Action.CREATE.value
+    assert _actions(plan, "folder")[FOLDER] == Action.CREATE.value
+    assert _actions(plan, "datasource")["Timescale"] == Action.CREATE.value
     dash = _actions(plan, "dashboard")
     assert dash["overview"] == Action.CREATE.value
     assert dash["per_station"] == Action.CREATE.value
@@ -100,7 +101,7 @@ def test_empty_infra_all_create():
     schema_change = _by_kind(plan, "schema")[0]
     assert "CREATE SCHEMA IF NOT EXISTS" in schema_change.sql
     assert not plan.has_destructive
-    # 4 timescale (schema, table, retention, compression) + org + datasource + 2 dashboards
+    # 4 timescale (schema, table, retention, compression) + folder + datasource + 2 dashboards
     assert plan.actionable_count == 8
 
 
@@ -148,13 +149,22 @@ def test_dashboard_content_drift_is_update():
 
 
 # --------------------------------------------------------------------------
-# datasource re-scoped to a different schema -> UPDATE
+# shared datasource: reused when present, CREATE only when missing
 # --------------------------------------------------------------------------
-def test_datasource_schema_drift_is_update():
+def test_missing_datasource_is_create():
     live = in_sync_live()
-    live.grafana.datasource.schema = "some_other_schema"
+    live.grafana.datasource = DatasourceState()
     plan = make_plan(DEMO, live)
-    assert _actions(plan, "datasource")["croptopus_tsdb"] == Action.UPDATE.value
+    assert _actions(plan, "datasource")["Timescale"] == Action.CREATE.value
+
+
+def test_existing_datasource_never_updated():
+    # even if connection details differ, an existing datasource is owned by
+    # the server stack's provisioning and must stay NO_CHANGE
+    live = in_sync_live()
+    live.grafana.datasource.database = "some_other_db"
+    plan = make_plan(DEMO, live)
+    assert _actions(plan, "datasource")["Timescale"] == Action.NO_CHANGE.value
 
 
 # --------------------------------------------------------------------------

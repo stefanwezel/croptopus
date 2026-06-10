@@ -1,6 +1,6 @@
 """The v1 hand-written dashboard template library.
 
-Manifests reference dashboards by id (``overview``, ``soil_moisture``,
+Manifests reference dashboards by id (``overview``, ``per_station``,
 ``device_health``); each id maps to a JSON file in ``templates/``. At apply
 time the applier substitutes the datasource uid and the project's Postgres
 schema. If a manifest references an id that isn't in the library, the plan
@@ -15,9 +15,9 @@ import hashlib
 
 TEMPLATE_DIR = os.path.join(os.path.dirname(__file__), "templates")
 
-# Per-project dashboard uids must be unique across the shared Grafana, but in
-# v1 each project has its own org, and dashboard uids are scoped per-org, so a
-# stable "<project>-<id>" keeps re-applies idempotent (PUT by uid).
+# All projects share Grafana org 1, and dashboard uids are scoped per-org, so
+# the stable "<project>-<id>" prefix is what keeps projects from colliding —
+# and keeps re-applies idempotent (PUT by uid).
 UID_MAX = 40
 
 
@@ -52,7 +52,15 @@ def render(dashboard_id, project_id, datasource_uid, schema, title=None):
     """
     dash = _load_raw(dashboard_id)
     uid = dashboard_uid(project_id, dashboard_id)
-    title = title or dash.get("title", dashboard_id)
+    # Templates carry the literal placeholder as their title, so defaulting to
+    # dash["title"] would leave "__TITLE__" in Grafana. Mirror the server's
+    # naming style ("Croptopus Overview") with the project id prefixed.
+    if not title:
+        template_title = dash.get("title", "")
+        if template_title and template_title != "__TITLE__":
+            title = template_title
+        else:
+            title = f"{project_id} {dashboard_id}".replace("_", " ").title()
 
     serialized = json.dumps(dash)
     serialized = serialized.replace("__UID__", uid)
