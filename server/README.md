@@ -133,6 +133,7 @@ table=`measurements`, the column names, datasource UID `timescale-main`) match w
 generator would produce, so swapping the hand-written version for the generated one is
 mechanical.
 
-> Note: the manifest's `database.retention_days` is currently `365`, while this
-> hand-written schema defaults to `730`. When `projectctl` generates the schema it
-> will follow the manifest; until then, edit `01_schema.sql` if you want 365.
+> Note: the manifest's `database.retention_days` (`730`) now matches this
+> hand-written schema's retention default, so the two are in sync. When
+> `projectctl` generates the schema it will follow the manifest; if you change
+> `retention_days` there, mirror it in `01_schema.sql` until then.

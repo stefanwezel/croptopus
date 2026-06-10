@@ -6,6 +6,7 @@ via PUT-by-uid; dashboards are pushed with ``overwrite: true`` keyed on their
 stable uid, so re-applying never duplicates.
 """
 
+import re
 from urllib.parse import urlparse
 
 import requests
@@ -19,6 +20,12 @@ HTTP_TIMEOUT = 15
 
 def _datasource_uid(project_id):
     return f"ts-{project_id}"[:40]
+
+
+def _folder_uid(folder_name):
+    """Stable Grafana folder uid derived from the manifest's folder name."""
+    slug = re.sub(r"[^a-zA-Z0-9-]", "-", folder_name).strip("-")
+    return f"folder-{slug}"[:40] or "folder"
 
 
 def _parse_db_url(url):
@@ -102,7 +109,7 @@ class GrafanaDashboardApplier(DashboardApplier):
                 "database": self.db["database"],
                 "sslmode": "disable",
                 "timescaledb": True,
-                "postgresVersion": 1500,
+                "postgresVersion": 1600,
                 # the project schema is enforced by schema-qualified SQL in the
                 # dashboard templates; recorded here for transparency/drift.
                 "connMaxLifetime": 14400,
@@ -121,10 +128,33 @@ class GrafanaDashboardApplier(DashboardApplier):
             raise StateReadError(f"datasource provisioning failed ({r.status_code}): {r.text}")
         return uid
 
-    def ensure_dashboard(self, org_name, uid, dashboard_json):
+    def ensure_folder(self, s, folder_name):
+        """Ensure the manifest's Grafana folder exists in the current org and
+        return its uid. An empty/blank folder name means the org's General
+        folder (uid ``""``). Idempotent: created once, found by uid thereafter."""
+        if not folder_name:
+            return ""
+        uid = _folder_uid(folder_name)
+        r = s.get(self._url(f"/api/folders/{uid}"), timeout=HTTP_TIMEOUT)
+        if r.status_code == 200:
+            return uid
+        r = s.post(self._url("/api/folders"),
+                   json={"uid": uid, "title": folder_name}, timeout=HTTP_TIMEOUT)
+        if r.status_code in (200, 201):
+            return uid
+        # created concurrently / name clash — re-check by uid before giving up
+        r = s.get(self._url(f"/api/folders/{uid}"), timeout=HTTP_TIMEOUT)
+        if r.status_code == 200:
+            return uid
+        raise StateReadError(f"folder provisioning failed ({r.status_code}): {r.text}")
+
+    def ensure_dashboard(self, org_name, uid, dashboard_json, folder=None):
         org_id = self.org.ensure_org(org_name)
         s = self.org.org_session(self.project_id, org_id)
-        payload = {"dashboard": dashboard_json, "overwrite": True, "folderUid": ""}
+        # overwrite + folderUid enforces folder placement on every apply, so a
+        # dashboard manually moved out of its manifest folder is moved back.
+        folder_uid = self.ensure_folder(s, folder)
+        payload = {"dashboard": dashboard_json, "overwrite": True, "folderUid": folder_uid}
         r = s.post(self._url("/api/dashboards/db"), json=payload, timeout=HTTP_TIMEOUT)
         if r.status_code not in (200, 201):
             raise StateReadError(f"dashboard push failed ({r.status_code}): {r.text}")

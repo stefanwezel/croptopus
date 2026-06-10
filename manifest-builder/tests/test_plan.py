@@ -18,7 +18,7 @@ from applier.grafana import dashboard_library as lib
 DEMO = {
     "customer": {"id": "demo_farm", "name": "Demo Farm"},
     "project": {"id": "croptopus_dev", "name": "Croptopus Dev", "environment": "dev"},
-    "database": {"schema": "croptopus", "retention_days": 365, "compression_after_days": 30},
+    "database": {"schema": "croptopus", "retention_days": 730, "compression_after_days": 30},
     "grafana": {
         "folder": "Croptopus",
         "datasource_name": "croptopus_tsdb",
@@ -53,7 +53,7 @@ def in_sync_live(manifest=DEMO):
     ds_uid = "ts-" + PROJECT_ID
     schema = SchemaState(
         schema_exists=True, measurements_table_exists=True, is_hypertable=True,
-        retention_interval="365 days",
+        retention_interval="730 days",
         compression_enabled=True, compression_interval="30 days",
     )
     dashboards = {}
@@ -130,11 +130,11 @@ def test_in_sync_all_no_change():
 # --------------------------------------------------------------------------
 def test_retention_change_is_update():
     live = in_sync_live()
-    live.schema.retention_interval = "180 days"   # manifest says 365
+    live.schema.retention_interval = "180 days"   # manifest says 730
     plan = make_plan(DEMO, live)
     assert _actions(plan, "retention_policy")["croptopus.measurements"] == Action.UPDATE.value
     rc = [c for c in plan.changes if c.kind == "retention_policy"][0]
-    assert rc.params["days"] == 365
+    assert rc.params["days"] == 730
 
 
 def test_dashboard_content_drift_is_update():

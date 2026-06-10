@@ -192,7 +192,7 @@ def _grafana_changes(manifest, live, warnings):
         params = {
             "org_name": org_name, "uid": uid, "dashboard_id": did,
             "project_id": project_id, "schema": schema,
-            "datasource_uid": ds_uid_live,
+            "datasource_uid": ds_uid_live, "folder": g.get("folder"),
         }
         live_dash = gs.dashboards.get(uid)
         if live_dash is None:

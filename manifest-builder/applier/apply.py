@@ -82,7 +82,9 @@ def _execute(change, schema_applier, dashboard_applier, created_ds_uid):
         if not ds_uid:
             raise RuntimeError("no datasource uid available for dashboard")
         body = lib.render(p["dashboard_id"], p["project_id"], ds_uid, p["schema"])
-        msg = dashboard_applier.ensure_dashboard(p["org_name"], p["uid"], body)
+        msg = dashboard_applier.ensure_dashboard(
+            p["org_name"], p["uid"], body, p.get("folder"),
+        )
         return msg, created_ds_uid
 
     raise RuntimeError(f"unknown op: {op!r}")

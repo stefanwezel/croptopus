@@ -1,9 +1,13 @@
 [project]
 name = "manifest-builder"
 version = "0.1.0"
-description = "Croptopus manifest builder — author and round-trip the LoRa sensor-network manifest."
+description = "Croptopus manifest builder — author, round-trip, and apply the LoRa sensor-network manifest."
 requires-python = ">=3.10"
 dependencies = [
     "flask>=3.0",
     "pyyaml>=6.0",
+    "psycopg2-binary>=2.9",
+    "requests>=2.32",
+    "python-dotenv>=1.0",
+    "gunicorn>=21.2",
 ]

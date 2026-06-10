@@ -38,7 +38,7 @@ def empty_manifest() -> dict[str, Any]:
         "nodes": [],
         "database": {
             "schema": "croptopus",
-            "retention_days": 365,
+            "retention_days": 730,
             "compression_after_days": 30,
         },
         "grafana": {

@@ -1,0 +1,12 @@
+# Never bake secrets or local runtime state into the image.
+# (.env = local creds; instance/ = Grafana tokens + apply audit DB)
+.env
+instance/
+
+# Local dev cruft.
+.venv/
+__pycache__/
+*.pyc
+.pytest_cache/
+tests/
+.git/

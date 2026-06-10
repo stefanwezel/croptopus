@@ -10,6 +10,7 @@ above works without any extra config.
 from __future__ import annotations
 
 import io
+import os
 import re
 import hashlib
 from datetime import datetime, timezone
@@ -37,8 +38,22 @@ from applier import state as state_mod, config as config_mod, apply_log
 from applier.errors import ApplierError
 from applier.model import Plan, Action
 
+# Load a local .env (dev convenience) BEFORE the applier reads os.environ below,
+# so applier config can live in manifest-builder/.env. No-op if python-dotenv
+# isn't installed or the file is absent. override=False: real environment
+# variables (e.g. Coolify's) still take precedence over the file.
+try:
+    from dotenv import load_dotenv
+
+    load_dotenv(Path(__file__).parent / ".env", override=False)
+except ImportError:
+    pass
+
 app = Flask(__name__)
-app.secret_key = "dev-only-not-for-prod"  # flashes + plan session; replace if exposing
+# Signs the flash + plan-stash session cookie. Falls back to a dev value for
+# local use; set SECRET_KEY in any real deployment so cookies survive restarts
+# and aren't forgeable.
+app.secret_key = os.environ.get("SECRET_KEY", "dev-only-not-for-prod")
 
 EXAMPLE_PATH = Path(__file__).parent / "examples" / "example_manifest.yaml"
 SAVED_DIR = Path(__file__).parent / "saved"

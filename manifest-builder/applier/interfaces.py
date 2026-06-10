@@ -115,8 +115,11 @@ class DashboardApplier(ABC):
         ``schema``. Returns the datasource uid."""
 
     @abstractmethod
-    def ensure_dashboard(self, org_name: str, uid: str, dashboard_json: dict) -> str:
-        """PUT a dashboard by uid (create-or-update). Returns a message."""
+    def ensure_dashboard(self, org_name: str, uid: str, dashboard_json: dict,
+                         folder: str = None) -> str:
+        """PUT a dashboard by uid (create-or-update) into ``folder`` (the
+        manifest's grafana.folder; blank means the General folder). Returns a
+        message."""
 
     # ---- destructive (refused in v1) ----
     @abstractmethod
