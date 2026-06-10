@@ -11,11 +11,27 @@ so re-applying an in-sync manifest is a no-op. Raw SQL via psycopg2 — clearer
 for an IaC-style tool and consistent with the ingester.
 """
 
+import secrets
+
 import psycopg2
 from psycopg2 import sql
 
-from ..interfaces import SchemaApplier, SchemaState
+from ..interfaces import SchemaApplier, SchemaState, IngestTokenState
 from ..errors import RefusedDestructive, StateReadError
+
+# Control-plane table the ingester routes by: token -> schema. Mirrors the
+# definition in server/db/init/01_schema.sql; ensured here too so applies
+# work against databases initialised before the registry existed.
+_REGISTRY_DDL = (
+    "CREATE SCHEMA IF NOT EXISTS registry",
+    """CREATE TABLE IF NOT EXISTS registry.projects (
+           project_id   text PRIMARY KEY,
+           schema_name  text NOT NULL,
+           ingest_token text NOT NULL UNIQUE,
+           created_at   timestamptz NOT NULL DEFAULT now(),
+           updated_at   timestamptz NOT NULL DEFAULT now()
+       )""",
+)
 
 
 class TimescaleSchemaApplier(SchemaApplier):
@@ -80,6 +96,26 @@ class TimescaleSchemaApplier(SchemaApplier):
                         state.retention_interval = config.get("drop_after")
                     elif proc_name == "policy_compression":
                         state.compression_interval = config.get("compress_after")
+        finally:
+            conn.close()
+        return state
+
+    def read_ingest_token(self, project_id):
+        state = IngestTokenState()
+        conn = self._connect()
+        try:
+            with conn.cursor() as cur:
+                try:
+                    cur.execute(
+                        "SELECT schema_name FROM registry.projects WHERE project_id = %s",
+                        (project_id,),
+                    )
+                except psycopg2.errors.UndefinedTable:
+                    return state   # registry not provisioned yet
+                row = cur.fetchone()
+                if row is not None:
+                    state.exists = True
+                    state.schema_name = row[0]
         finally:
             conn.close()
         return state
@@ -173,6 +209,37 @@ class TimescaleSchemaApplier(SchemaApplier):
                     (qualified, interval),
                 )
         return f"compression policy on {qualified} set to {interval}"
+
+    def ensure_ingest_token(self, project_id, schema):
+        with self._connect() as conn:
+            with conn.cursor() as cur:
+                for ddl in _REGISTRY_DDL:
+                    cur.execute(ddl)
+                cur.execute(
+                    "SELECT schema_name FROM registry.projects WHERE project_id = %s",
+                    (project_id,),
+                )
+                row = cur.fetchone()
+                if row is None:
+                    token = secrets.token_urlsafe(32)
+                    cur.execute(
+                        "INSERT INTO registry.projects (project_id, schema_name, ingest_token)"
+                        " VALUES (%s, %s, %s)",
+                        (project_id, schema, token),
+                    )
+                    return (
+                        f"project {project_id} registered for schema {schema}; "
+                        f"ingest token (configure the gateway forwarder with this): {token}"
+                    )
+                if row[0] != schema:
+                    cur.execute(
+                        "UPDATE registry.projects"
+                        " SET schema_name = %s, updated_at = now()"
+                        " WHERE project_id = %s",
+                        (schema, project_id),
+                    )
+                    return f"ingest token repointed to schema {schema} (was {row[0]})"
+                return f"project {project_id} already registered for schema {schema}"
 
     # ----------------------------------------------------------- destructive
     def drop_schema(self, schema):

@@ -53,15 +53,16 @@ async def healthz() -> JSONResponse:
     return JSONResponse(content=body, status_code=code)
 
 
-@app.post("/ingest", status_code=status.HTTP_202_ACCEPTED, dependencies=[Depends(require_token)])
-async def ingest(payload: IngestPayload) -> JSONResponse:
+@app.post("/ingest", status_code=status.HTTP_202_ACCEPTED)
+async def ingest(payload: IngestPayload, schema: str = Depends(require_token)) -> JSONResponse:
     started = time.perf_counter()
-    n = await db.ingest(payload)
+    n = await db.ingest(payload, schema)
     latency_ms = round((time.perf_counter() - started) * 1000, 1)
 
     log.info(
-        "ingest ok device_id=%s num_readings=%d latency_ms=%s",
+        "ingest ok device_id=%s schema=%s num_readings=%d latency_ms=%s",
         payload.device_id,
+        schema,
         n,
         latency_ms,
     )

@@ -87,3 +87,19 @@ EXCEPTION
     WHEN duplicate_object THEN NULL;   -- policy already exists
 END
 $$;
+
+-- ---------------------------------------------------------------------------
+-- registry: control-plane data, written by the manifest-builder applier on
+-- Apply. Maps per-project ingest tokens to the schema their data lands in
+-- (see ingester/app/auth.py). Included here for fresh installs; on existing
+-- databases the applier creates it on first Apply.
+-- ---------------------------------------------------------------------------
+CREATE SCHEMA IF NOT EXISTS registry;
+
+CREATE TABLE IF NOT EXISTS registry.projects (
+    project_id   text PRIMARY KEY,
+    schema_name  text NOT NULL,
+    ingest_token text NOT NULL UNIQUE,
+    created_at   timestamptz NOT NULL DEFAULT now(),
+    updated_at   timestamptz NOT NULL DEFAULT now()
+);

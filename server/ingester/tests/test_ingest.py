@@ -43,6 +43,9 @@ def client(monkeypatch):
 
     ingested: list = []
 
+    # registry tokens the fake DB "knows": token -> schema
+    registry = {"project-x-token": "project_x"}
+
     async def fake_connect() -> None:
         return None
 
@@ -52,17 +55,21 @@ def client(monkeypatch):
     async def fake_healthcheck() -> bool:
         return True
 
-    async def fake_ingest(payload) -> int:
-        ingested.append(payload)
+    async def fake_ingest(payload, schema) -> int:
+        ingested.append((payload, schema))
         return len(payload.readings)
+
+    async def fake_resolve_token(token) -> str | None:
+        return registry.get(token)
 
     monkeypatch.setattr(db, "connect", fake_connect)
     monkeypatch.setattr(db, "disconnect", fake_disconnect)
     monkeypatch.setattr(db, "healthcheck", fake_healthcheck)
     monkeypatch.setattr(db, "ingest", fake_ingest)
+    monkeypatch.setattr(db, "resolve_token", fake_resolve_token)
 
     with TestClient(main.app) as c:
-        c.ingested = ingested  # expose for assertions
+        c.ingested = ingested  # expose for assertions: (payload, schema) pairs
         yield c
 
 
@@ -82,9 +89,19 @@ def test_ingest_happy_path(client):
     body = resp.json()
     assert body["rows"] == 3
     assert body["device_id"] == "node_4f2a"
-    # the payload reached the (stubbed) DB layer
+    # the payload reached the (stubbed) DB layer, routed to the legacy schema
     assert len(client.ingested) == 1
-    assert client.ingested[0].device_id == "node_4f2a"
+    payload, schema = client.ingested[0]
+    assert payload.device_id == "node_4f2a"
+    assert schema == "croptopus"
+
+
+def test_ingest_registry_token_routes_to_project_schema(client):
+    """A per-project token (from registry.projects) lands in that schema."""
+    resp = client.post("/ingest", json=VALID_PAYLOAD, headers=_auth("project-x-token"))
+    assert resp.status_code == 202
+    _, schema = client.ingested[0]
+    assert schema == "project_x"
 
 
 def test_ingest_accepts_null_value(client):
@@ -99,7 +116,7 @@ def test_ingest_accepts_null_value(client):
     }
     resp = client.post("/ingest", json=payload, headers=_auth())
     assert resp.status_code == 202
-    assert client.ingested[0].readings[0].value is None
+    assert client.ingested[0][0].readings[0].value is None
 
 
 def test_ingest_requires_token(client):

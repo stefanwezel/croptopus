@@ -5,9 +5,9 @@ manifest. All access goes through the SchemaApplier / DashboardApplier
 interfaces so the backends stay pluggable.
 """
 
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 
-from .interfaces import SchemaState, GrafanaState
+from .interfaces import SchemaState, GrafanaState, IngestTokenState
 from .grafana import dashboard_library as lib
 
 
@@ -15,6 +15,7 @@ from .grafana import dashboard_library as lib
 class LiveState:
     schema: SchemaState
     grafana: GrafanaState
+    ingest: IngestTokenState = field(default_factory=IngestTokenState)
 
 
 def manifest_schema(manifest):
@@ -49,6 +50,9 @@ def read_live_state(manifest, schema_applier, dashboard_applier):
     project_id = (manifest.get("project") or {}).get("id", "")
 
     schema_state = schema_applier.read_state(schema) if schema else SchemaState()
+    ingest_state = (
+        schema_applier.read_ingest_token(project_id) if project_id else IngestTokenState()
+    )
 
     uids = [
         lib.dashboard_uid(project_id, did)
@@ -60,4 +64,4 @@ def read_live_state(manifest, schema_applier, dashboard_applier):
         manifest_datasource_name(manifest),
         uids,
     )
-    return LiveState(schema=schema_state, grafana=grafana_state)
+    return LiveState(schema=schema_state, grafana=grafana_state, ingest=ingest_state)

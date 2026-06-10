@@ -30,6 +30,14 @@ class SchemaState:
 
 
 @dataclass
+class IngestTokenState:
+    """Snapshot of a project's row in registry.projects (ingest routing)."""
+
+    exists: bool = False
+    schema_name: Optional[str] = None   # the schema the token routes to
+
+
+@dataclass
 class DatasourceState:
     exists: bool = False
     uid: Optional[str] = None
@@ -85,6 +93,18 @@ class SchemaApplier(ABC):
     @abstractmethod
     def set_compression_policy(self, schema: str, days: int) -> str:
         ...
+
+    # ---- ingest-token registry (token -> schema routing for the ingester) ----
+    @abstractmethod
+    def read_ingest_token(self, project_id: str) -> IngestTokenState:
+        """Read the project's registry.projects row (read path; never mutates).
+        A missing registry table reads as 'not registered'."""
+
+    @abstractmethod
+    def ensure_ingest_token(self, project_id: str, schema: str) -> str:
+        """Register the project in registry.projects, generating its ingest
+        token on first registration (the token is included in the returned
+        message ONLY then). Repoints schema_name if it drifted. Idempotent."""
 
     # ---- destructive (refused in v1) ----
     @abstractmethod

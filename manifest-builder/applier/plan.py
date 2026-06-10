@@ -47,6 +47,7 @@ def _same_days(manifest_days, live_interval):
 def _timescale_changes(manifest, live):
     db = manifest.get("database") or {}
     schema = db.get("schema")
+    project_id = (manifest.get("project") or {}).get("id", "")
     changes = []
     s = live.schema
 
@@ -120,6 +121,32 @@ def _timescale_changes(manifest, live):
                      f"SELECT add_compression_policy('{qualified}', INTERVAL '{compression_days} days', if_not_exists => TRUE);"),
                 op="set_compression_policy",
                 params={"schema": schema, "days": compression_days},
+            ))
+
+    # ingest-token registration (registry.projects row the ingester routes by)
+    ing = live.ingest
+    if project_id:
+        if not ing.exists:
+            changes.append(ResourceChange(
+                "timescale", "ingest_token", project_id, Action.CREATE.value,
+                detail=(f"register project and generate its ingest token "
+                        f"(routes uplinks to schema {schema}); the token is "
+                        f"shown once in the apply result"),
+                op="ensure_ingest_token",
+                params={"project_id": project_id, "schema": schema},
+            ))
+        elif ing.schema_name != schema:
+            changes.append(ResourceChange(
+                "timescale", "ingest_token", project_id, Action.UPDATE.value,
+                detail=(f"repoint ingest token to schema {schema} "
+                        f"(was {ing.schema_name}); token itself is unchanged"),
+                op="ensure_ingest_token",
+                params={"project_id": project_id, "schema": schema},
+            ))
+        else:
+            changes.append(ResourceChange(
+                "timescale", "ingest_token", project_id, Action.NO_CHANGE.value,
+                detail=f"ingest token registered, routing to schema {schema}",
             ))
 
     return changes

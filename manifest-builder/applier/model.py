@@ -28,7 +28,7 @@ class ResourceChange:
     """One row in a plan: what we intend to do to one resource."""
 
     section: str                       # "timescale" | "grafana"
-    kind: str                          # schema|table|retention_policy|compression_policy|folder|datasource|dashboard
+    kind: str                          # schema|table|retention_policy|compression_policy|ingest_token|folder|datasource|dashboard
     name: str                          # human identity of the resource
     action: str                        # one of Action values
     detail: str = ""                   # human-readable description

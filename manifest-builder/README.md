@@ -70,7 +70,11 @@ Everything that mutates infra is idempotent and refuses destructive operations.
   named from `database.schema`, the `measurements` hypertable (long/narrow),
   a `devices` table, the two query indexes, and retention + compression
   policies from `database.retention_days` / `compression_after_days`. The shape
-  mirrors `server/db/init/01_schema.sql` exactly.
+  mirrors `server/db/init/01_schema.sql` exactly. Plus the project's row in
+  **`registry.projects`**: on first apply a per-project **ingest token** is
+  generated (shown once, in the apply result — configure the gateway forwarder
+  with it). The ingester resolves token → schema through this table, so
+  uplinks land in the right project schema with no ingester redeploy.
 - **Grafana** (`applier/grafana/`): a folder in org 1 named from
   `grafana.folder` (blank means the project name), and each enabled dashboard
   from `grafana.dashboards` inside it. The Postgres datasource (named from
@@ -90,7 +94,8 @@ warning, not a hard error (apply skips it).
 Two isolation mechanisms, both keyed off the manifest:
 
 1. **Postgres schema per project** — each project's data lives in its own
-   schema in the shared Timescale cluster.
+   schema in the shared Timescale cluster. The ingester routes uplinks by
+   bearer token via `registry.projects` (token → schema), maintained by Apply.
 2. **Grafana folder per project** — all projects share org 1 (where the server
    stack provisions the `Timescale` datasource); each project owns a folder
    and the dashboards in it. Dashboard uids are prefixed `{project_id}-` so

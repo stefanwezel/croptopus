@@ -10,7 +10,7 @@ from applier import plan as plan_mod
 from applier import state as state_mod
 from applier.model import Action
 from applier.interfaces import (
-    SchemaState, GrafanaState, DatasourceState, DashboardState,
+    SchemaState, GrafanaState, DatasourceState, DashboardState, IngestTokenState,
 )
 from applier.grafana import dashboard_library as lib
 
@@ -72,7 +72,8 @@ def in_sync_live(manifest=DEMO):
                                    database="croptopus"),
         dashboards=dashboards, all_dashboards=all_dash,
     )
-    return state_mod.LiveState(schema=schema, grafana=grafana)
+    ingest = IngestTokenState(exists=True, schema_name=SCHEMA)
+    return state_mod.LiveState(schema=schema, grafana=grafana, ingest=ingest)
 
 
 def make_plan(manifest, live):
@@ -90,6 +91,7 @@ def test_empty_infra_all_create():
     assert _actions(plan, "table")["croptopus.measurements"] == Action.CREATE.value
     assert _actions(plan, "retention_policy")["croptopus.measurements"] == Action.CREATE.value
     assert _actions(plan, "compression_policy")["croptopus.measurements"] == Action.CREATE.value
+    assert _actions(plan, "ingest_token")[PROJECT_ID] == Action.CREATE.value
 
     assert _actions(plan, "folder")[FOLDER] == Action.CREATE.value
     assert _actions(plan, "datasource")["Timescale"] == Action.CREATE.value
@@ -101,8 +103,9 @@ def test_empty_infra_all_create():
     schema_change = _by_kind(plan, "schema")[0]
     assert "CREATE SCHEMA IF NOT EXISTS" in schema_change.sql
     assert not plan.has_destructive
-    # 4 timescale (schema, table, retention, compression) + folder + datasource + 2 dashboards
-    assert plan.actionable_count == 8
+    # 5 timescale (schema, table, retention, compression, ingest_token)
+    # + folder + datasource + 2 dashboards
+    assert plan.actionable_count == 9
 
 
 def test_empty_infra_plan_hash_stable():
@@ -136,6 +139,15 @@ def test_retention_change_is_update():
     assert _actions(plan, "retention_policy")["croptopus.measurements"] == Action.UPDATE.value
     rc = [c for c in plan.changes if c.kind == "retention_policy"][0]
     assert rc.params["days"] == 730
+
+
+def test_ingest_token_schema_drift_is_update():
+    live = in_sync_live()
+    live.ingest.schema_name = "old_schema"   # manifest says croptopus
+    plan = make_plan(DEMO, live)
+    assert _actions(plan, "ingest_token")[PROJECT_ID] == Action.UPDATE.value
+    rc = _by_kind(plan, "ingest_token")[0]
+    assert rc.params == {"project_id": PROJECT_ID, "schema": SCHEMA}
 
 
 def test_dashboard_content_drift_is_update():

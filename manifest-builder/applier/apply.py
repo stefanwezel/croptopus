@@ -68,6 +68,8 @@ def _execute(change, schema_applier, dashboard_applier, created_ds_uid):
         return schema_applier.set_retention_policy(p["schema"], p["days"]), created_ds_uid
     if op == "set_compression_policy":
         return schema_applier.set_compression_policy(p["schema"], p["days"]), created_ds_uid
+    if op == "ensure_ingest_token":
+        return schema_applier.ensure_ingest_token(p["project_id"], p["schema"]), created_ds_uid
 
     if op == "ensure_folder":
         uid = dashboard_applier.ensure_folder(p["folder_name"])
