@@ -1,4 +1,6 @@
-# Grafana image with the Timescale datasource + dashboards baked in.
+# Grafana image with the Timescale datasource baked in. Dashboards are NOT
+# provisioned here — they are managed per-project by the manifest-builder
+# applier (folder-per-project in org 1), which reuses this datasource.
 #
 # Same reason as db/Dockerfile: Coolify doesn't reliably mount the repo's
 # ./grafana/provisioning at runtime, so provisioning silently did nothing

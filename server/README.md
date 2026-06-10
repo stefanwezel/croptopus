@@ -49,8 +49,9 @@ curl http://127.0.0.1:8000/healthz
 # -> {"status":"ok","db":"ok"}
 
 # 4. Grafana UI: http://127.0.0.1:3000  (admin / the GF_SECURITY_ADMIN_PASSWORD
-#    you set; change it after first login). The "Croptopus Overview" dashboard
-#    and the Timescale datasource are provisioned automatically.
+#    you set; change it after first login). The Timescale datasource is
+#    provisioned automatically; dashboards are created per project by the
+#    manifest-builder's Apply (see ../manifest-builder/README.md).
 ```
 
 ### End-to-end smoke test
@@ -126,12 +127,12 @@ start against an empty DB volume. Defaults: 730-day retention, compress after 30
 
 ## Future work
 
-This stack will eventually be **(re)generated from the project manifest by
-`projectctl`**. For now the schema, datasource, and dashboard are hand-written using
-defaults that match the manifest's `database` section. Names here (schema=`croptopus`,
-table=`measurements`, the column names, datasource UID `timescale-main`) match what a
-generator would produce, so swapping the hand-written version for the generated one is
-mechanical.
+Dashboards are already manifest-driven: the manifest-builder's applier creates a
+Grafana folder per project and pushes its dashboards, reusing the datasource
+provisioned here. The hand-written parts that remain are the initial schema
+(`db/init/01_schema.sql`) and the datasource; their names (schema=`croptopus`,
+table=`measurements`, the column names, datasource UID `timescale-main`) match the
+manifest defaults, so re-applying a manifest over them is a no-op.
 
 > Note: the manifest's `database.retention_days` (`730`) now matches this
 > hand-written schema's retention default, so the two are in sync. When
